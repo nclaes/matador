@@ -1,0 +1,2 @@
+docker run -it --security-opt label=type:container_runtime_t --network=host -e DISPLAY=$DISPLAY -v /tools/Xilinx/Vivado/2022.2/:/tools/Xilinx/Vivado/2022.2/ -v "/run/user/1000/gdm/Xauthority:/root/.Xauthority:rw" matador_docker:v1  /bin/bash
+

@@ -1,0 +1,12 @@
+{
+   "Output_Directory":"existing_model_trial",
+   "Clauses"     : "500",
+   "Classes"     : "10",
+   "s_value"     : "8.0",
+   "T_value"     : "800",
+   "epochs"     : "10",
+   "states"     : "256",
+   "features"   : "784",
+   "training_data"      : "/home/tousif/Desktop/Matador_Docker/data/mnist_train.txt",
+   "test_data"          : "/home/tousif/Desktop/Matador_Docker/data/mnist_train.txt"
+}
