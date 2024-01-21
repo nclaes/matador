@@ -8,3 +8,13 @@ This version of Matador is ran from a GUI. Therefore it requires the X Window Sy
 
 We are going to use X11 as a shared component between the host system and the docker container. We are going to use the Socket files, which is a UNIX technology that helps the daemon or the services running in the host Linux system to communicate with each other.
 
+#### Update the Build Matador Script 
+An example script looks like this: 
+
+```bash 
+#!/bin/bash
+
+docker build -t matador_docker:v1 .
+docker run -it --security-opt label=type:container_runtime_t --network=host -e DISPLAY=$DISPLAY -v /tools/Xilinx/Vivado/2022.2/:/tools/Xilinx/Vivado/2022.2/ -v /home/tousif/Desktop/Matador_Docker/:/home/tousif/Desktop/Matador_Docker/ -v "/run/user/1000/gdm/Xauthority:/root/.Xauthority:rw" matador_docker:v1 
+
+```
