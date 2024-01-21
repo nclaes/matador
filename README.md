@@ -1,5 +1,5 @@
 ### <img src="/banner.png" width=900/>
-Automated ASIC design for TM. The repo is organized according to the table below: 
+Automated ASIC and FPGA design for Tsetlin Machine Acclerators. The repo is organized according to the table below: 
 
 | Repo Branch      | Description |
 | -------------------------------|----------------------------------------------------------------------------------- |
