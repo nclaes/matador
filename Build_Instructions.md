@@ -1,4 +1,4 @@
-### <img src="/images/banner.png" width=900/>
+### <img src="/images/banner.png" width=1020/>
 ### Build Instructions 
 
 First install Docker: https://docs.docker.com/engine/install/ubuntu/.
