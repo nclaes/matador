@@ -1,8 +1,13 @@
 # <img src="/images/banner.png" width=900/>
-### Matador: Automated Data Bandwith Driven Logic Based Inference
+## Matador: Automated Data Bandwith Driven Logic Based Inference
 
-Matador is a tool for training and translating Coalesced Tsetlin Machines (CoTM) into FPGA accelerator systems. It converts learnt clause propositions into custom hard coded fast inference circuits which are then streamed inference data from the system's processor. The tool's configurable design and debug options allow for rapid prototyping of CoTM applications to meet target performance and resource requirements. The Matador approach offers competitive performance in terms of latency, logic utilization and power consumption when compared against its nearest Binary Neural Network counterparts.  
+Matador is a tool for training and translating Coalesced Tsetlin Machines (CoTM) into FPGA accelerator systems. It converts learnt clause propositions into custom hard coded fast inference circuits which are then streamed inference data from the system's processor. The tool's configurable design and debug options allow for rapid prototyping of CoTM applications to meet target performance and resource requirements. The Matador approach offers competitive performance in terms of latency, logic utilization and power consumption when compared against its nearest Binary Neural Network counterparts. The core concepts of Matador are presented in the two figures below:   
 # <img src="/images/promotional.png" width=900/>
+# <img src="/images/flow.png" width=900/>
+
+## Learn about Matador
+
+## Build Matador 
 
 
 #### Requirements 
