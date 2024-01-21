@@ -1,3 +1,6 @@
-# matador
-Automated ASIC design for TM. 
-View ```development``` branch for current version. 
+# Matador
+Automated ASIC design for TM. The repo is organized according to the table below: 
+
+
+
+
