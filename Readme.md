@@ -9,10 +9,10 @@ Matador is a tool for training and translating Coalesced Tsetlin Machines (CoTM)
 
 The core papers for learning about Matador are listed here: 
 
-Tsetlin Machine original paper : https://arxiv.org/abs/1804.01508
-Coalesced Tsetlin Machine paper: https://arxiv.org/abs/2108.07594
-Hardware Tsetlin Machines paper: https://royalsocietypublishing.org/doi/epdf/10.1098/rsta.2019.0593
-Tsetlin Machine CAIR github    : https://github.com/cair/tmu
+1) Tsetlin Machine original paper : https://arxiv.org/abs/1804.01508
+2) Coalesced Tsetlin Machine paper: https://arxiv.org/abs/2108.07594
+3) Hardware Tsetlin Machines paper: https://royalsocietypublishing.org/doi/epdf/10.1098/rsta.2019.0593
+4) Tsetlin Machine CAIR github    : https://github.com/cair/tmu
 
 ## Build Matador 
 ### Requirements 
