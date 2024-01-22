@@ -29,6 +29,6 @@ First navigate to the directory where the Matador repo is located.
 ```
 If the build is successful then you will get a docker container that contains the Matador tools. 
 
-### <img src="/images/build_success.png" width=900/>
+### <img src="/images/build_success.png" width=300/>
 
 Matador is a research tool - the build instructions here are not robust to all system specifications. 
