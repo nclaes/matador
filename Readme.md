@@ -14,6 +14,9 @@ The core papers for learning about Matador are listed here:
 3) Hardware Tsetlin Machines paper: https://royalsocietypublishing.org/doi/epdf/10.1098/rsta.2019.0593
 4) Tsetlin Machine CAIR github    : https://github.com/cair/tmu
 
+Matador's training engine comes from the TMU repo: https://github.com/cair/tmu [```914e099```]. 
+While the repo incorporates all the Tsetlin Machine models, Matador currently supports Vanilla (Tsetlin Machine) and Coalesced Tsetlin Machine. 
+
 ## Build Matador 
 ### Requirements 
 
@@ -31,8 +34,6 @@ Matador was developed by Tousif Rahman and Gang Mao in the Microsystems Group at
 
 If there are issues with the setup or the usage please contact: 
 Tousif Rahman: tousifsrahman@gmail.com
-
-
 
 ## Matador Video Library 
 

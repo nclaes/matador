@@ -229,8 +229,13 @@ class CoalescedTsetlinMachine():
 
 def main():
 
+    parser = argparse.ArgumentParser(description="MATADOR Training")
+    parser.add_argument("-output_dir", help="results directory to store the training data", type=str)
+    args = parser.parse_args()
 
-    config_file = open("training_config.json")
+    output_dir = args.output_dir
+    config_file = output_dir + "/training_config.json"
+    config_file = open(config_file)
     config = json.load(config_file)
 
     # parser = argparse.ArgumentParser(description="MATADOR CoTM Training")

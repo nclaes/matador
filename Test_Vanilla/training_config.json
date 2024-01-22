@@ -1,10 +1,10 @@
 {
    "Output_Directory":"Test_Vanilla",
    "TM"     : "Tsetlin Machine: Vanilla ",
-   "Clauses"     : "200",
+   "Clauses"     : "10",
    "Classes"     : "10",
    "s_value"     : "8.0",
-   "T_value"     : "15",
+   "T_value"     : "20",
    "epochs"     : "10",
    "states"     : "256",
    "features"   : "784",

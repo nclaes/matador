@@ -63,7 +63,7 @@ def Matador_manual():
     os.system("evince images/Matador_Manual.pdf")
 
 
-def CoTM_train_py(clauses, classes, train_data, test_data, s_value, T_value, epochs, features, TM, newWindow):
+def CoTM_train_py(clauses, classes, train_data, test_data, s_value, T_value, epochs, features, literal_budget, TM, newWindow):
     
     global output_dir
     print("\t\t\tOutput Directory: ", output_dir)
@@ -77,6 +77,7 @@ def CoTM_train_py(clauses, classes, train_data, test_data, s_value, T_value, epo
     epochs_     = epochs.get()
     features_   = features.get()
     TM          = TM.get()
+    literal_budget_ = literal_budget.get()
     newWindow.destroy()
     # print("Selected specs for the TM:   ", clauses_, " ",classes_," ", train_data_, " ", test_data_, " ", s_value_ )
     
@@ -94,6 +95,7 @@ def CoTM_train_py(clauses, classes, train_data, test_data, s_value, T_value, epo
     f.write("{\n")
     f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
     f.write("")
+    f.write("   \"TM\"     : \"" + str(TM) + "\",\n")
     f.write("   \"Clauses\"     : \"" + str(clauses_) + "\",\n")
     f.write("   \"Classes\"     : \"" + str(classes_) + "\",\n")
     f.write("   \"s_value\"     : \"" + str(s_value_) + "\",\n")
@@ -101,27 +103,31 @@ def CoTM_train_py(clauses, classes, train_data, test_data, s_value, T_value, epo
     f.write("   \"epochs\"     : \"" + str(epochs_) + "\",\n")
     f.write("   \"states\"     : \"" + str(256) + "\",\n")
     f.write("   \"features\"   : \"" + str(features_) + "\",\n")
+    f.write("   \"literal_budget\"   : \"" + str(literal_budget_) + "\",\n")
     f.write("   \"training_data\"      : \"" + str(train_data_) + "\",\n")
     f.write("   \"test_data\"          : \"" + str(train_data_) + "\"\n")
     f.write("}\n")
 
     f.close()
 
-    f = open("training_config.json", "w")
-    f.write("{\n")
-    f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
-    f.write("   \"Clauses\"     : \"" + str(clauses_) + "\",\n")
-    f.write("   \"Classes\"     : \"" + str(classes_) + "\",\n")
-    f.write("   \"s_value\"     : \"" + str(s_value_) + "\",\n")
-    f.write("   \"T_value\"     : \"" + str(T_value_) + "\",\n")
-    f.write("   \"epochs\"     : \"" + str(epochs_) + "\",\n")
-    f.write("   \"states\"     : \"" + str(256) + "\",\n")
-    f.write("   \"features\"   : \"" + str(features_) + "\",\n")
-    f.write("   \"training_data\"      : \"" + str(train_data_) + "\",\n")
-    f.write("   \"test_data\"          : \"" + str(train_data_) + "\"\n")
-    f.write("}\n")
+    # this is removed now 
+    # f = open("training_config.json", "w")
+    # f.write("{\n")
+    # f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
+    # f.write("   \"TM\"     : \"" + str(TM) + "\",\n")
+    # f.write("   \"Clauses\"     : \"" + str(clauses_) + "\",\n")
+    # f.write("   \"Classes\"     : \"" + str(classes_) + "\",\n")
+    # f.write("   \"s_value\"     : \"" + str(s_value_) + "\",\n")
+    # f.write("   \"T_value\"     : \"" + str(T_value_) + "\",\n")
+    # f.write("   \"epochs\"     : \"" + str(epochs_) + "\",\n")
+    # f.write("   \"states\"     : \"" + str(256) + "\",\n")
+    # f.write("   \"features\"   : \"" + str(features_) + "\",\n")
+    # f.write("   \"literal_budget\"   : \"" + str(literal_budget_) + "\",\n")
+    # f.write("   \"training_data\"      : \"" + str(train_data_) + "\",\n")
+    # f.write("   \"test_data\"          : \"" + str(train_data_) + "\"\n")
+    # f.write("}\n")
 
-    f.close()
+    # f.close()
 
 
 def train_CoTM():
@@ -194,13 +200,13 @@ def train_CoTM():
     lit_budg.grid(row=9, column=1)
     
 
-    callable_print_collect_tm_training = partial(CoTM_train_py, clauses, classes, train_data, test_data, s_value, T_value, epochs, features, menu, newWindow)
+    callable_print_collect_tm_training = partial(CoTM_train_py, clauses, classes, train_data, test_data, s_value, T_value, epochs, features, lit_budg, menu, newWindow)
 
     var = tk.IntVar()
     done_button = tk.Button(newWindow, text='Start Training', font='Terminal 9', command=callable_print_collect_tm_training, bg="black", fg = "white", width=14).grid(row=11, column=1, sticky=tk.W, pady=3, padx=30)
 
     root.wait_window(newWindow)
-    exec_py = "python3 utils/tm_me.py"     
+    exec_py = "python3 utils/tm_me.py -output_dir " + str(output_dir)      
     # subprocess.check_call(exec_py.split(), stdout=sys.stdout , stderr=subprocess.STDOUT)
     p = subprocess.Popen(exec_py, shell=True, stdout=subprocess.PIPE, bufsize=1, text=True)
     while True:
