@@ -1,0 +1,30 @@
+#the_footer {z-index: 9999999999999999999; font-size: 16px;display:none}
+#the_footer a {color:white; text-decoration: none;}
+#the_footer .footer_text {float: left; color:white; font-family: arial; font-size: 16px;  padding-left: 15px; padding-top:13px;}
+#the_footer .btn_box {float: left; width:200px; height: 45px; margin-left: 4px; text-decoration: none; padding-top:3px; font-weight:bold;}
+.btn_no_box {width:300px; height: 20px; padding: 5px; margin-left: 4px;  margin-left: 5px; text-decoration: none; padding-top:8px;}
+#start_footer {background-color:#00CC00;}
+#submit_footer {background-color:#0099FF;}
+#submit_no {background-color:#0099FF; cursor: pointer;}
+#start_footer:hover {background-color:#009933;}
+#submit_footer:hover {background-color:#037AC9;}
+#submit_no:hover {background-color:#037AC9; cursor: pointer;}
+
+#the_footer .btn_box.upgrade-link{
+	width:280px;
+}
+
+.bar-content{
+	position:absolute;
+	right:0px;
+    width: 1000px;
+    top: 15px;
+}
+
+#noiFrame {
+
+  -moz-box-shadow:    3px 3px 5px 6px rgba(0, 0, 0, 0.55);
+  -webkit-box-shadow: 6px 6px 6px 6px rgba(0, 0, 0, 0.55);
+  box-shadow:         0px 6px 30px 0px rgba(0, 0, 0, 0.55);
+	
+	}
