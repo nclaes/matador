@@ -19,6 +19,15 @@ docker build -t matador_docker:v1 .
 docker run -it --security-opt label=type:container_runtime_t --network=host -e DISPLAY=$DISPLAY -v /tools/Xilinx/Vivado/2022.2/:/tools/Xilinx/Vivado/2022.2/ -v /home/tousif/Desktop/Matador_Docker/:/home/tousif/Desktop/Matador_Docker/ -v "/run/user/1000/gdm/Xauthority:/root/.Xauthority:rw" matador_docker:v1 
 
 ```
+Notice there are three directories mounted (```-v``` flag). The first is the directory on the host where Vivado is installed. This version of Matador requires use of Xilinx tools. Then there is the directory where the Matador repo is pulled. Finally there is the location of the hosts XServer. 
+
+| build flag      | Description |
+| -------------------------------|----------------------------------------------------------------------------------- |
+|```--network```             		| host network driver |
+|```-e```             				| environment |
+|```-DISPLAY```             		| share the hosts DISPLAY variable|
+|```-v```             				| mount local directories |
+
 
 #### Build the Docker Environment
 
@@ -31,4 +40,4 @@ If the build is successful then you will get a docker container that contains th
 
 ### <img src="/images/build_success.png" width=300/>
 
-Matador is a research tool - the build instructions here are not robust to all system specifications. 
+```[Disclaimer] ``` Matador is a research tool - the build instructions here are not robust to all system specifications, the tool is open source and offers flexibility to users to manipulate it how they choose. 
