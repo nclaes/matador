@@ -1,0 +1,26 @@
+Train Dimensions : Samples x Features x Classes
+
+Digits : 1437 x 512 x 10
+Sport : 3839 x 30 x 10
+Statlog : 676 x 288 x 4
+Gesture Phase : 1397 x 212 x 5
+Human Activity : 7352 x 816 x 7
+Mammographic Mass : 768 x 40 x 2
+EMG : 45694 x 96 x 7
+Sensorless Drive : 46807 x 480 x 12
+
+
+
+
+
+
+Test Dimensions : Samples x Features x Classes
+
+Digits : 360 x 512 x 10
+Sport : 960 x 30 x 10
+Statlog : 170 x 288 x 4
+Gesture Phase : 350 x 212 x 5
+Human Activity : 2947 x 816 x 7
+Mammographic Mass : 193 x 40 x 2
+EMG : 11424 x 96 x 7
+Sensorless Drive : 11702 x 480 x 12
