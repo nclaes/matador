@@ -26,21 +26,23 @@ module Hard_Coded_Inference_Top #(
     parameter CLAUSE_NUM,
     parameter CLASS_NUM,
     parameter WEIGHT_LENGTH,
-    parameter C_M00_AXIS_TDATA_WIDTH
+    parameter C_S00_AXIS_TDATA_WIDTH,
+    parameter C_M00_AXIS_TDATA_WIDTH,
+    parameter PACKETS_NUM
 )
 (x, y, packet_counter,valid,s_axis_tready, clk, finish, last, last_out, clauses, class_sums, m00_axis_tready);
 	input logic clk;
 	output logic finish; 
 	output logic [CLAUSE_NUM - 1:0] clauses;
-	output logic signed [WEIGHT_LENGTH-1:0] class_sums [CLASS_NUM];
+	output logic signed [WEIGHT_LENGTH - 1:0] class_sums [10];
 	input logic s_axis_tready;
 	input logic m00_axis_tready;
-	input logic [C_M00_AXIS_TDATA_WIDTH-1:0] x;
-	input logic [12:0] valid;
+	input logic [C_M00_AXIS_TDATA_WIDTH:0] x;
+	input logic [PACKETS_NUM - 1:0] valid;
 	input logic last;
 	output logic last_out;
-	input logic [C_M00_AXIS_TDATA_WIDTH-1:0] packet_counter; 
-	output logic [C_M00_AXIS_TDATA_WIDTH-1:0] y;
+	input logic [C_M00_AXIS_TDATA_WIDTH:0] packet_counter; 
+	output logic [C_M00_AXIS_TDATA_WIDTH:0] y;
 
 	
 	logic [CLAUSE_NUM - 1:0] partial_clause_reg_0;
@@ -78,7 +80,11 @@ module Hard_Coded_Inference_Top #(
     logic delay_1;
     logic last_registered;
     assign finish = finished;
-    assign clauses = partial_clause_reg_12;
+    
+    logic [CLAUSE_NUM - 1:0] partial_clause_reg;
+    
+    //assign clauses = partial_clause_reg_12;
+    assign clauses = partial_clause_reg;
     initial begin 
        valid_reg_0 = 1'b0;
        valid_reg_1 = 1'b0;
@@ -105,6 +111,7 @@ module Hard_Coded_Inference_Top #(
        (*DONT_TOUCH = "TRUE"*) finished = 1'b0;
   
        y = {64'b0};
+       
        partial_clause_reg_0  = {200'b0};
        partial_clause_reg_1  = {200'b0};
        partial_clause_reg_2  = {200'b0};
@@ -119,109 +126,19 @@ module Hard_Coded_Inference_Top #(
        partial_clause_reg_11 = {200'b0};
        partial_clause_reg_12 = {200'b0};   
     end 
-
-	HCB_0 HCB_inst_0(
-		.clk(clk),
+    
+    
+    HCB_top #(
+            .PACKETS_NUM(PACKETS_NUM),
+            .CLAUSE_NUM(CLAUSE_NUM),
+            .C_S00_AXIS_TDATA_WIDTH(C_S00_AXIS_TDATA_WIDTH)
+        ) 
+        HT(.clk(clk),
 		.x(x),
-		.valid(valid[0]),
-		.partial_clause(partial_clause_reg_0)
-	);
+		.valid(valid),
+		.partial_clause(partial_clause_reg));
+    
 
-	HCB_1 HCB_inst_1(
-		.clk(clk),
-		.x(x),
-		.valid(valid[1]),
-		.partial_clause_prev(partial_clause_reg_0),
-		.partial_clause(partial_clause_reg_1)
-	);
-
-	HCB_2 HCB_inst_2(
-		.clk(clk),
-		.x(x),
-		.valid(valid[2]),
-		.partial_clause_prev(partial_clause_reg_1),
-		.partial_clause(partial_clause_reg_2)
-	);
-
-	HCB_3 HCB_inst_3(
-		.clk(clk),
-		.x(x),
-		.valid(valid[3]),
-		.partial_clause_prev(partial_clause_reg_2),
-		.partial_clause(partial_clause_reg_3)
-	);
-
-	HCB_4 HCB_inst_4(
-		.clk(clk),
-		.x(x),
-		.valid(valid[4]),
-		.partial_clause_prev(partial_clause_reg_3),
-		.partial_clause(partial_clause_reg_4)
-	);
-
-	HCB_5 HCB_inst_5(
-		.clk(clk),
-		.x(x),
-		.valid(valid[5]),
-		.partial_clause_prev(partial_clause_reg_4),
-		.partial_clause(partial_clause_reg_5)
-	);
-
-	HCB_6 HCB_inst_6(
-		.clk(clk),
-		.x(x),
-		.valid(valid[6]),
-		.partial_clause_prev(partial_clause_reg_5),
-		.partial_clause(partial_clause_reg_6)
-	);
-
-	HCB_7 HCB_inst_7(
-		.clk(clk),
-		.x(x),
-		.valid(valid[7]),
-		.partial_clause_prev(partial_clause_reg_6),
-		.partial_clause(partial_clause_reg_7)
-	);
-
-	HCB_8 HCB_inst_8(
-		.clk(clk),
-		.x(x),
-		.valid(valid[8]),
-		.partial_clause_prev(partial_clause_reg_7),
-		.partial_clause(partial_clause_reg_8)
-	);
-
-	HCB_9 HCB_inst_9(
-		.clk(clk),
-		.x(x),
-		.valid(valid[9]),
-		.partial_clause_prev(partial_clause_reg_8),
-		.partial_clause(partial_clause_reg_9)
-	);
-
-	HCB_10 HCB_inst_10(
-		.clk(clk),
-		.x(x),
-		.valid(valid[10]),
-		.partial_clause_prev(partial_clause_reg_9),
-		.partial_clause(partial_clause_reg_10)
-	);
-
-	HCB_11 HCB_inst_11(
-		.clk(clk),
-		.x(x),
-		.valid(valid[11]),
-		.partial_clause_prev(partial_clause_reg_10),
-		.partial_clause(partial_clause_reg_11)
-	);
-
-	HCB_12 HCB_inst_12(
-		.clk(clk),
-		.x(x),
-		.valid(valid[12]),
-		.partial_clause_prev(partial_clause_reg_11),
-		.partial_clause(partial_clause_reg_12)
-	);
 	
     wire adder_done;
     
@@ -513,11 +430,12 @@ module Hard_Coded_Inference_Top #(
 	Adder_new #(
 	.STAGE_NUM(STAGE_NUM),
     .CLAUSE_NUM(CLAUSE_NUM),
-    .CLASS_NUM(CLASS_NUM)
+    .CLASS_NUM(CLASS_NUM),
+    .WEIGHT_LENGTH(WEIGHT_LENGTH)
 	)add_inst
 	(
 		.clk(clk),
-		.clauses(partial_clause_reg_12),
+		.clauses(partial_clause_reg),
 		.class_sums(class_sums),
 		.valid(adder),
 		.adder_done(adder_done)

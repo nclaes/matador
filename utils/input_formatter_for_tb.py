@@ -4,10 +4,10 @@ import math
 # packets of 32, this can then be fed through AXI stream from the 
 # processor to the accelerator 
 
-mnist_file = "mnist_test.txt"
+mnist_file = "/home/tousif/Desktop/Matador_Docker/data/MNIST/mnist_test.txt"
 File_data = np.loadtxt(mnist_file, dtype=int)
 
-number_of_examples = 100
+number_of_examples = 10
 # Remove the class cols 
 cols = File_data[:, -1]
 

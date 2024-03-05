@@ -111,6 +111,7 @@ output logic [C_M00_AXIS_TDATA_WIDTH - 1:0] y
         else if (c_stat) begin
             c_stat = 0;
             y[INDEX_LENGTH - 1:0] = cmp_index[0]; 
+            y[C_M00_AXIS_TDATA_WIDTH - 1:INDEX_LENGTH] = {(C_M00_AXIS_TDATA_WIDTH - INDEX_LENGTH){1'b0}};
         end
 	end 
 endmodule

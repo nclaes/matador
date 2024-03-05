@@ -1,0 +1,14 @@
+{
+   "Output_Directory":"test",
+   "TM"     : "Tsetlin Machine: Vanilla ",
+   "Clauses"     : "100",
+   "Classes"     : "10",
+   "s_value"     : "3.0",
+   "T_value"     : "80",
+   "epochs"     : "5",
+   "states"     : "256",
+   "features"   : "784",
+   "max_included_literals"   : "8",
+   "training_data"      : "/home/tousif/Desktop/Matador_Docker/data/MNIST/mnist_train.txt",
+   "test_data"          : "/home/tousif/Desktop/Matador_Docker/data/MNIST/mnist_train.txt"
+}

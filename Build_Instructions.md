@@ -1,6 +1,8 @@
 ### <img src="/images/banner.png" width=1020/>
 
 ### Build Instructions 
+Note Matador was design and built on a native ```Ubuntu 20.04.5 LTS x86_64```
+You may replicate the following with:
 
 First install Docker: https://docs.docker.com/engine/install/ubuntu/.
 
@@ -42,3 +44,7 @@ If the build is successful then you will get a docker container that contains th
 
 ```[Disclaimer] ``` Matador is a research tool - the build instructions here are not robust to all system specifications, the tool is open source and offers flexibility to users to manipulate it how they choose. 
 
+
+#### Build the tmu dependencies 
+
+This version of Matador uses tmu codebase. This is already built for the container. However if there are build issues please report them or propose new instructions for building this.  

@@ -66,7 +66,6 @@ def Matador_manual():
 def CoTM_train_py(clauses, classes, train_data, test_data, s_value, T_value, epochs, features, literal_budget, TM, newWindow):
     
     global output_dir
-    print("\t\t\tOutput Directory: ", output_dir)
 
     clauses_    = clauses.get()
     classes_    = classes.get()
@@ -79,36 +78,34 @@ def CoTM_train_py(clauses, classes, train_data, test_data, s_value, T_value, epo
     TM          = TM.get()
     literal_budget_ = literal_budget.get()
     newWindow.destroy()
-    # print("Selected specs for the TM:   ", clauses_, " ",classes_," ", train_data_, " ", test_data_, " ", s_value_ )
-    
+
     if(output_dir == ""):
-        print(train_model_, "The output directory has not been specified -- please run the Setup to configure")
-        # sleep(10)
-        exit()
+        print(train_model_, "[Error] The output directory has not been specified")
+        print(train_model_, "You need to run Setup")
+        newWindow.destroy()
+    else:
+        print("")
+        print(train_model_, "Training Start")
+        print(train_model_, "Selected TM: ", TM)
 
-    print("")
-    print(train_model_, " Training Start")
-    print(train_model_, "Selected TM: ", TM)
+        f = open(output_dir+"/training_config.json", "w")
+        f.write("{\n")
+        f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
+        f.write("")
+        f.write("   \"TM\"     : \"" + str(TM) + "\",\n")
+        f.write("   \"Clauses\"     : \"" + str(clauses_) + "\",\n")
+        f.write("   \"Classes\"     : \"" + str(classes_) + "\",\n")
+        f.write("   \"s_value\"     : \"" + str(s_value_) + "\",\n")
+        f.write("   \"T_value\"     : \"" + str(T_value_) + "\",\n")
+        f.write("   \"epochs\"     : \"" + str(epochs_) + "\",\n")
+        f.write("   \"states\"     : \"" + str(256) + "\",\n")
+        f.write("   \"features\"   : \"" + str(features_) + "\",\n")
+        f.write("   \"max_included_literals\"   : \"" + str(literal_budget_) + "\",\n")
+        f.write("   \"training_data\"      : \"" + str(train_data_) + "\",\n")
+        f.write("   \"test_data\"          : \"" + str(train_data_) + "\"\n")
+        f.write("}\n")
 
-
-    f = open(output_dir+"/training_config.json", "w")
-    f.write("{\n")
-    f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
-    f.write("")
-    f.write("   \"TM\"     : \"" + str(TM) + "\",\n")
-    f.write("   \"Clauses\"     : \"" + str(clauses_) + "\",\n")
-    f.write("   \"Classes\"     : \"" + str(classes_) + "\",\n")
-    f.write("   \"s_value\"     : \"" + str(s_value_) + "\",\n")
-    f.write("   \"T_value\"     : \"" + str(T_value_) + "\",\n")
-    f.write("   \"epochs\"     : \"" + str(epochs_) + "\",\n")
-    f.write("   \"states\"     : \"" + str(256) + "\",\n")
-    f.write("   \"features\"   : \"" + str(features_) + "\",\n")
-    f.write("   \"literal_budget\"   : \"" + str(literal_budget_) + "\",\n")
-    f.write("   \"training_data\"      : \"" + str(train_data_) + "\",\n")
-    f.write("   \"test_data\"          : \"" + str(train_data_) + "\"\n")
-    f.write("}\n")
-
-    f.close()
+        f.close()
 
     # this is removed now 
     # f = open("training_config.json", "w")
@@ -129,18 +126,19 @@ def CoTM_train_py(clauses, classes, train_data, test_data, s_value, T_value, epo
 
     # f.close()
 
-
 def train_CoTM():
+    global output_dir
     # first check if the user has specified the output directory
     print("  ----------------------------------------------------------------------------")
     print("                          Entering Training Mode                              ")
     print("  ----------------------------------------------------------------------------")
+    print("")
     print(train_model_, "Training Mode now incorporates TMU codebase for training")
     print(train_model_, "Enter the data as required from the pop-up window")
     print(train_model_, "TMU               : https://github.com/cair/tmu")
     print(train_model_, "Vanilla TM        : https://arxiv.org/abs/1804.01508")
     print(train_model_, "Coalesced TM      : https://arxiv.org/abs/2108.07594")
-    print(train_model_, "Lit Budgeting Info: https://arxiv.org/abs/2301.08190")
+    print(train_model_, "Lit Budgeting Info: https://arxiv.org/abs/2301.08190\n")
     # create a new window to take the user inputs for the CoTM training 
     newWindow = tk.Toplevel(root)
     newWindow.resizable(0,0)
@@ -171,13 +169,10 @@ def train_CoTM():
              text="T value", font='Terminal 9').grid(row=6)
     Label(newWindow, 
              text="Epochs", font='Terminal 9').grid(row=7)
-
     Label(newWindow, 
              text="Features", font='Terminal 9').grid(row=8)
-             
-             
     Label(newWindow, 
-             text="Lit Budget\n(y/n)", font='Terminal 9').grid(row=9, rowspan=2)
+             text="Max Inc Lits", font='Terminal 9').grid(row=9, rowspan=2)
 
     clauses = tk.Entry(newWindow, bd=3)
     classes = tk.Entry(newWindow, bd=3)
@@ -199,21 +194,12 @@ def train_CoTM():
     epochs.grid(row=7, column=1)
     lit_budg.grid(row=9, column=1)
     
-
     callable_print_collect_tm_training = partial(CoTM_train_py, clauses, classes, train_data, test_data, s_value, T_value, epochs, features, lit_budg, menu, newWindow)
 
     var = tk.IntVar()
     done_button = tk.Button(newWindow, text='Start Training', font='Terminal 9', command=callable_print_collect_tm_training, bg="black", fg = "white", width=14).grid(row=11, column=1, sticky=tk.W, pady=3, padx=30)
 
     root.wait_window(newWindow)
-    exec_py = "python3 utils/tm_me.py -output_dir " + str(output_dir)      
-    # subprocess.check_call(exec_py.split(), stdout=sys.stdout , stderr=subprocess.STDOUT)
-    p = subprocess.Popen(exec_py, shell=True, stdout=subprocess.PIPE, bufsize=1, text=True)
-    while True:
-        nextline = p.stdout.readline()
-        sys.stdout.write(nextline)
-        if nextline == '' and p.poll() is not None:
-            break
     #     # sys.stdout.write(nextline)
     #     sys.stdout.flush()
 
@@ -223,67 +209,108 @@ def train_CoTM():
     #     msg = p.stdout.readline().strip() # read a line from the process output
     #     if msg:
     #         print(msg)
+    # if the training config file is written then the training can happen - otherwise we need to exit
+    # an error message will be given to say that the training has not been successful 
+    path = output_dir + "/training_config.json"
+    isExist = os.path.exists(path)
+    if not isExist or output_dir == "":
+        print(train_model_, "[Error] the training config was not generated")
+        print(train_model_, "[Error] The model could not be trained")
+        print(train_model_, "You need to run the training again.")
+        print("")
+        print("  ----------------------------------------------------------------------------")
+        print("                           Exiting Training Mode                              ")
+        print("  ----------------------------------------------------------------------------")
 
-    print(train_model_, "CoTM Training End")
-    print("")
-    print("  ----------------------------------------------------------------------------")
-    print("                           Exiting Training Mode                              ")
-    print("  ----------------------------------------------------------------------------")
+    else:
+        print(train_model_, "training config: ", path)
+        exec_py = "python3 utils/train.py -output_dir " + str(output_dir)      
+        # subprocess.check_call(exec_py.split(), stdout=sys.stdout , stderr=subprocess.STDOUT)
+        p = subprocess.Popen(exec_py, shell=True, stdout=subprocess.PIPE, bufsize=1, text=True)
+        while True:
+            nextline = p.stdout.readline()
+            sys.stdout.write(nextline)
+            if nextline == '' and p.poll() is not None:
+                break
+        print(train_model_, "CoTM Training End")
+        print("")
+        print("  ----------------------------------------------------------------------------")
+        print("                           Exiting Training Mode                              ")
+        print("  ----------------------------------------------------------------------------")
 
-
+# This function is for setting up the output dir where all the results will be written 
+# for the training and accelerator design. 
 def write_setup_config(vivado, output_dir_user, newWindow):
     # create the directory that has been specified
     global vivado_path 
     vivado_path= vivado.get()
     global output_dir 
     output_dir= output_dir_user.get()
+    # check if these paths are empty 
     if(output_dir == ""):
-        print(setup_, "Empty Directory given")
-        print(setup_, "Error in Setup - exiting")
+        print(setup_, "[Error] Empty Directory given")
         newWindow.destroy()
-    elif(vivado_path == ""):
-        print(setup_, "Empty Vivado path given")
-        print(setup_, "Error in Setup - exiting") 
-        newWindow.destroy()
-    else:
-        isExist = os.path.exists(output_dir)
-        if not isExist:
-            print(setup_, "Creating User Directory: ", output_dir)
-            print(setup_, "Existing files will be re-written")
-            # Create a new directory because it does not exist
-            os.makedirs(output_dir)
-        # checking Vivado path 
-        print(setup_, "Checking for Vivado bin path...")
-        isExist = os.path.exists(vivado_path    )
-        if not isExist:
-            print(setup_, "The Vivado path provided does not exist")
-            print(setup_, "Error in Setup - exiting")
 
-        else:
-            print(setup_, "Vivado bin path found")
-            print(setup_, "Writing setup config.json")
-            f = open(output_dir+"/config.json", "w")
-            f.write("{\n")
-            f.write("   \"vivado_path\": \"" + str(vivado_path) + "\",\n")
-            f.write("   \"Matador_home_path\": \"" + str(Matador_home_path) + "\"\n")
-            f.write("}")
-            f.close()
-            print(setup_, "Setup complete...")
-            print("  ----------------------------------------------------------------------------")
-            print("                            Exiting Setup Mode                                ")
-            print("  ----------------------------------------------------------------------------")
+    # now check if the directory exists - there are two options here - either it has alreadt been created
+    # or it needs to created. If its already created then the config file will be re-written.
+
+    isExist = os.path.exists(output_dir)
+    if not isExist and (output_dir != ""):
+        print(setup_, "The Directory does not exist")
+        print(setup_, "Creating User Directory: ", output_dir)
+        # Create a new directory because it does not exist
+        os.makedirs(output_dir)
+    else: 
+        print(setup_, "The Directory already exists")
+        print(setup_, "[Warning] The config.json will be re-written now")
+    
+    # check fof the vivado path - this is not essential if the user does not want to synthesize 
+    # the design - they may just want the RTL. 
+
+    isExist = os.path.exists(vivado_path    )
+    if not isExist and (vivado_path != ""):
+        print(setup_ , "[Warning] The Vivado path provided does not exist")
+        print(setup_ , "You can still continue but this will cause issues later" )
+        print(setup_ , "The Vivado path will be searched for when synthesizing")
+    elif (vivado_path == ""): 
+        print(setup_, "[Warning] The Vivado path is empty. ")
+        print(setup_ , "You can still continue but this will cause issues later" )
+        print(setup_ , "The Vivado path will be searched for when synthesizing") 
+    else: 
+        print(setup_ , "Vivado path found") 
+
+    if(output_dir != ""):
+        print(setup_, "Writing setup config.json...")
+        f = open(output_dir+"/config.json", "w")
+        f.write("{\n")
+        f.write("   \"vivado_path\": \"" + str(vivado_path) + "\",\n")
+        f.write("   \"Matador_home_path\": \"" + str(Matador_home_path) + "\"\n")
+        f.write("}")
+        f.close()
+        print(setup_, "Writing complete")
+        print(setup_, "Setup complete...\n")
+        print("  ----------------------------------------------------------------------------")
+        print("                            Exiting Setup Mode                                ")
+        print("  ----------------------------------------------------------------------------")
+        newWindow.destroy()
+    else: 
+        print(setup_, "You didn't give an output directory")
+        print(setup_, "You need to run Setup again...\n")
+        print("  ----------------------------------------------------------------------------")
+        print("                            Exiting Setup Mode                                ")
+        print("  ----------------------------------------------------------------------------")
         newWindow.destroy()
 
 def run_Setup():
     newWindow = tk.Toplevel(root)
     newWindow.title("Setup")
-    newWindow.geometry("350x100")
+    newWindow.geometry("300x90")
     p1 = ImageTk.PhotoImage(file = 'images/image.png')
     newWindow.iconphoto(False, p1) 
     Label(newWindow, 
-             text="Vivado bin path", font='Terminal 9').grid(row=0)
+             text="Vivado bin Path", font='Terminal 9', padx=5, pady=5).grid(row=0)
     Label(newWindow, 
-             text="Output Directory", font='Terminal 9').grid(row=1)
+             text="Output Directory", font='Terminal 9', padx=5, pady=5).grid(row=1)
 
     e1 = tk.Entry(newWindow)
     e2 = tk.Entry(newWindow)
@@ -295,16 +322,19 @@ def run_Setup():
     print("                           Entering Setup Mode                                ")
     print("  ----------------------------------------------------------------------------")
     print("")
+    print("  You should now see a new window open - this is where you need to provide some ")
+    print("  important information. You need to specify the output directory where you want")
+    print("  the outputs and results of the process to be written. You should also provide ")
+    print("  the path to your vivado binary if you want to synthesize the RTL that will be ")
+    print("  generated.\n")
 
     callable_print_collect = partial(write_setup_config, e1, e2, newWindow)
 
-    done_button = tk.Button(newWindow, text='Done', font='Terminal 9', command=callable_print_collect, bg="black", fg = "white").grid(row=3, column=1, sticky=tk.W, pady=4) 
+    done_button = tk.Button(newWindow, text='Done', font='Terminal 9', command=callable_print_collect, bg="black", fg = "white").grid(row=3, column=1, sticky=tk.W, pady=3) 
   
-    
 def run_UEM():
     threading.Thread(target=uem).start() 
     
-
 def run_RTL_gen():
     threading.Thread(target=RTL_gen).start()
 
@@ -319,7 +349,7 @@ def RTL_gen():
     #     if nextline == '' and p.poll() is not None:
     #         break
 
-    exec_py = "python3 utils/RTL_gen.py"
+    exec_py = "python3 utils/rtl.py -output_dir " + str(output_dir)
     p = subprocess.Popen(exec_py, shell=True, stdout=subprocess.PIPE, bufsize=1, text=True)
     while True:
         nextline = p.stdout.readline()
@@ -329,7 +359,7 @@ def RTL_gen():
 
 
 
-def config_existing_model(TM, TAs, Weights, Clauses, Classes, BW, F, No_s,  newWindow, adds):
+def config_existing_model(TM, TAs, Weights, Clauses, Classes, BW, F,newWindow, adds, test_data):
 
     global output_dir
     # if(output_dir == ""):
@@ -343,55 +373,66 @@ def config_existing_model(TM, TAs, Weights, Clauses, Classes, BW, F, No_s,  newW
     Classes_    = Classes.get()
     BusWidth_   = BW.get()
     Features_   = F.get()
-    No_s_       = No_s.get()
     adds_       = adds.get()
+    test_data_  = test_data.get()
     newWindow.destroy()
 
-    f = open("gen_RTL.json", "w")
-    f.write("{\n")
-    f.write("   \"TM\":\"" + str(TM) + "\",\n")
-    f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
-    f.write("   \"TAs\"          : \""   + str(TAs_) + "\",\n")
-    f.write("   \"Weights\"      : \""   + str(Weights_) + "\",\n")
-    f.write("   \"Classes\"      : \""   + str(Classes_) + "\",\n")
-    f.write("   \"Clauses\"      : \""   + str(Clauses_) + "\",\n")
-    f.write("   \"BusWidth\"     : \""   + str(BusWidth_) + "\",\n")
-    f.write("   \"Features\"     : \""   + str(Features_) + "\",\n")
-    f.write("   \"No_States\"    : \""   + str(No_s_) + "\",\n")
-    f.write("   \"Adder_Stages\" : \""   + str(adds_) + "\"\n")
-    f.write("}\n")
-    f.close()
+    if(output_dir == ""):
+        print(train_model_, "[Error] The output directory has not been specified")
+        print(train_model_, "You need to run Setup")
+        newWindow.destroy()
+    else:
+        rtl_config = output_dir + "/" + "gen_RTL.json" 
+        f = open(rtl_config, "w")
+        f.write("{\n")
+        f.write("   \"TM\":\"" + str(TM) + "\",\n")
+        f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
+        f.write("   \"TAs\"          : \""   + str(TAs_) + "\",\n")
+        f.write("   \"Weights\"      : \""   + str(Weights_) + "\",\n")
+        f.write("   \"Classes\"      : \""   + str(Classes_) + "\",\n")
+        f.write("   \"Clauses\"      : \""   + str(Clauses_) + "\",\n")
+        f.write("   \"BusWidth\"     : \""   + str(BusWidth_) + "\",\n")
+        f.write("   \"Features\"     : \""   + str(Features_) + "\",\n")
+        f.write("   \"Adder_Stages\" : \""   + str(adds_) + "\",\n")
+        f.write("   \"Test_Data\"    : \""   + str(test_data_) + "\"\n")
+        f.write("}\n")
+        f.close()
 
-    run_RTL_gen()
+        run_RTL_gen()
     
-
 def uem():
     # Use existing model 
     global output_dir
-    print("  Output Directory: ", output_dir)
+    # print("  Output Directory: ", output_dir)
     print("  ")
-    print("  Converting Existing Model ")
-    print("  Converting requires existing TA file and or Weights file depending on the TM")
+    print(gen_RTL, "Converting Existing Model ")
+    print(gen_RTL, "Requires TA file and or Weights file")
     print(" ")
     print("  ----------------------------------------------------------------------------")
     print("                               Conversion Help                                ")
     print("  ----------------------------------------------------------------------------")
-    print("     [Convert]  Specify the TM type: [vanilla, coal]")
-    print("     [Convert]  Fill out the TM model specs - use the training.json if created")
-    print("     [Convert]  Bus Width: [32, 64]")
-    print("     [Convert]  Adder Stages: number of pipeline stages in the adder (coal TM)")
-    print("     [Convert]  No States: Maximum TA state number")
+    print(gen_RTL, "Specify the TM type: [vanilla, coal]")
+    print(gen_RTL, "Fill out the TM model specs - use the training.json if created")
+    print(gen_RTL, "Bus Width: [32, 64] for FPGA, use others for custom impls")
+    print(gen_RTL, "Adder Stages: number of pipeline stages in the adder")
     print("  ----------------------------------------------------------------------------")
     print(" ")
 
     newWindow = tk.Toplevel(root)
     newWindow.title("Convert Existing Model")
-    newWindow.geometry("350x300")
+    newWindow.geometry("300x300")
     p1 = ImageTk.PhotoImage(file = 'images/image.png')
     newWindow.iconphoto(False, p1)  
     
-    Label(newWindow, 
-        text="TM type", font='Terminal 9').grid(row=0)
+    s = Style()
+    s.configure("TMenubutton", background="gray", foreground="white", font='Terminal 9', width=28, bd=5)
+
+    #Create a dropdown Menu    
+    menu = tk.StringVar()
+    #menu.configure(font='Terminal 9')
+    menu.set(" Select Tsetlin Machine Type ")
+    drop_ = OptionMenu(newWindow, menu, "Select Tsetlin Machine Type", "Tsetlin Machine: Vanilla ", "Tsetlin Machine: Coalesced").grid(row=0, columnspan=2, pady=8, padx=20, sticky=tk.W)
+
     Label(newWindow, 
              text="TA file", font='Terminal 9').grid(row=1)
     Label(newWindow, 
@@ -405,31 +446,31 @@ def uem():
     Label(newWindow, 
              text="Features", font='Terminal 9').grid(row=6)
     Label(newWindow, 
-             text="No States", font='Terminal 9').grid(row=7)
+             text="Adder Stages", font='Terminal 9').grid(row=7)
     Label(newWindow, 
-             text="Adder Stages", font='Terminal 9').grid(row=8)
+             text="Test Data", font='Terminal 9').grid(row=8)
 
-    TM = tk.Entry(newWindow)
-    TA = tk.Entry(newWindow)
-    W = tk.Entry(newWindow)
-    Clauses = tk.Entry(newWindow)
-    Classes = tk.Entry(newWindow)
-    BW      = tk.Entry(newWindow)
-    F       = tk.Entry(newWindow)
-    No_s    = tk.Entry(newWindow)
-    adds    = tk.Entry(newWindow)
+    # TM = tk.Entry(newWindow, bd=3)
+    TA = tk.Entry(newWindow, bd=3)
+    W = tk.Entry(newWindow, bd=3)
+    Clauses = tk.Entry(newWindow, bd=3)
+    Classes = tk.Entry(newWindow, bd=3)
+    BW      = tk.Entry(newWindow, bd=3)
+    F       = tk.Entry(newWindow, bd=3)
+    adds    = tk.Entry(newWindow, bd=3)
+    test_data    = tk.Entry(newWindow, bd=3)
 
-    TM.grid(row=0, column=1)
+    # TM.grid(row=0, column=1)
     TA.grid(row=1, column=1)
     W.grid(row=2, column=1)
     Clauses.grid(row=3, column= 1)
     Classes.grid(row=4, column=1)
     BW.grid(row=5, column=1)
     F.grid(row=6, column=1)
-    No_s.grid(row=7, column=1)
-    adds.grid(row=8, column=1)
+    adds.grid(row=7, column=1)
+    test_data.grid(row=8, column=1)
 
-    callable_print_collect_uem = partial(config_existing_model,TM, TA, W, Clauses, Classes, BW, F, No_s, newWindow, adds)
+    callable_print_collect_uem = partial(config_existing_model,menu, TA, W, Clauses, Classes, BW, F, newWindow, adds, test_data)
 
     done_button = tk.Button(newWindow, text='Done', font='Terminal 9', command=callable_print_collect_uem, bg="black", fg = "white").grid(row=9, column=1, sticky=tk.W, pady=4) 
 
@@ -441,12 +482,9 @@ def create_accel():
 
     global vivado_dir
     print("\t\tChecking Vivado Path: ", vivado_path)
-
-
     print("\t\tChecking for model type...")
 
     # Open training config.json - if it doesn't exist it must be created 
-
     if os.path.isdir(output_dir+"/training_config.json"):
         if os.path.isdir(output_dir+"/RTL"):
             print("\t\tRTL directory found")
@@ -480,7 +518,6 @@ def run_Pynq():
 def pynq():
     wb.open("192.168.2.99",new=2)
 
-
 def ole():
     print("""
         -------------------------------------------------------------
@@ -497,8 +534,6 @@ def ole():
         ------------------------------------------------------------- 
 
         """)    
-
-
 
 def about():
     print("""
@@ -534,23 +569,20 @@ p1 = ImageTk.PhotoImage(file = 'images/m_icon.png')
 root.iconphoto(False, p1)
 # - rame with Text and Scrollbar -
 frame1 = tk.Frame(root, height=15)
-# frame1.config(background='black')
 frame1.pack(side = "top", expand=True, fill='both')
 raw_image = Image.open("images/m_final.png")
+
 # img = raw_image.zoom(25) #with 250, I ended up running out of memory
 # img = img.subsample(32)
 resized_image = raw_image.resize((140,142), Image.LANCZOS)
 new_image = ImageTk.PhotoImage(resized_image)
-# resized_image = raw_image.thumbnail((100,110), Image.ANTIALIAS)
-
 panel =tk.Frame(root) 
 panel.pack(side = "left", anchor="nw", pady=5)
-
 
 frame = tk.Frame(root)
 frame.pack(expand=True, fill='both')
 
-text = tk.Text(frame ,bd=4, width=82)
+text = tk.Text(frame ,bd=4, width=82, bg="white", fg="black")
 text.pack(side='left' ,fill='y', expand=True)
 
 scrollbar = tk.Scrollbar(frame , bd=2 )
@@ -594,10 +626,9 @@ old_stdout = sys.stdout
 sys.stdout = Redirect(text)
 
 print("                                                                            ")
-print("  Matador: autoMated dATa bAndwidth Driven lOgic based infeRence             ")
-print("                                                                            ")
-# print("  Tousif Rahman, Gang Mao, Sidharth Maheshwari                              ")                                  
-print('  Copyright (C) 2023                                                        ')
+print("  Matador: autoMated dATa bAndwidth Driven lOgic based infeRence            ")
+print("                                                                            ")                                 
+print('  Copyright (C) T. Rahman , G. Mao (2023)                                   ')
 print('                                                                            ')
 print('  Permission to use, copy, modify, and/or distribute this software for any  ')
 print('  purpose with or without fee is hereby granted, provided that the above    ')
@@ -610,9 +641,12 @@ print('  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES 
 print('  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN     ')
 print('  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF   ')
 print('  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.            ')
+print('                                                                            ')
+print('  Read the instructions the tool gives you very carefully ;)')
+print('                                                                            ')
+print('  To get started press the Setup button.')
 
 root.mainloop()
 # - after close window -
 sys.stdout = old_stdout
 # TO DO -- kill all background processes associated with the tool 
-

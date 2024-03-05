@@ -23,7 +23,7 @@
 
 module axis_wrapper_top #
 	(
-	    parameter integer DEPTH = 1,
+	    parameter integer DEPTH                     = 1,
 	    parameter integer WIDTH                     =  1, 
         parameter integer PACKETS                   = 13,
 		parameter integer C_S00_AXIS_TDATA_WIDTH	= 64,
@@ -32,7 +32,9 @@ module axis_wrapper_top #
 		parameter STAGE_NUM = 4,
         parameter CLAUSE_NUM = 500,
         parameter CLASS_NUM = 10,
-        parameter WEIGHT_LENGTH = 14
+        parameter WEIGHT_LENGTH = 14,
+        parameter FEATURE_NUM = 784,
+        parameter PACKETS_NUM = (FEATURE_NUM - 1)/C_S00_AXIS_TDATA_WIDTH + 1
 	)
 	(
 		// Ports of Axi Slave Bus Interface S00_AXIS
@@ -47,7 +49,7 @@ module axis_wrapper_top #
 		output wire [12:0] valid_reg,
 	    output wire [C_S00_AXIS_TDATA_WIDTH-1:0] axis2pipe_data,
         output wire [CLAUSE_NUM - 1:0] clauses,
-	    output logic signed [13:0] class_sums [10],
+	    output logic signed [WEIGHT_LENGTH-1:0] class_sums [CLASS_NUM],
 		// Ports of Axi Master Bus Interface M00_AXIS
 		input  wire  m00_axis_aclk,
 		input  wire  m00_axis_aresetn,
@@ -136,7 +138,9 @@ module axis_wrapper_top #
     .CLAUSE_NUM(CLAUSE_NUM),
     .CLASS_NUM(CLASS_NUM),
     .WEIGHT_LENGTH(WEIGHT_LENGTH),
-    .C_M00_AXIS_TDATA_WIDTH(C_M00_AXIS_TDATA_WIDTH)
+    .C_S00_AXIS_TDATA_WIDTH(C_S00_AXIS_TDATA_WIDTH),
+    .C_M00_AXIS_TDATA_WIDTH(C_M00_AXIS_TDATA_WIDTH),
+    .PACKETS_NUM(PACKETS_NUM)
 	)
 	tm(
 	   .x(axis2pipe_data),
@@ -155,7 +159,9 @@ module axis_wrapper_top #
 	);
 	
 	// Instantiation of Axi Bus Interface S00_AXIS
-	axis_adder_v1_0_S00_AXIS
+	axis_adder_v1_0_S00_AXIS #(
+	   .PACKETS_NUM(PACKETS_NUM)
+	)
 	 axis_adder_v1_0_S00_AXIS_inst (
 		.clk(s00_axis_aclk),
 		.rst(~s00_axis_aresetn),

@@ -22,6 +22,7 @@
 module weight_adder_tile #(
     parameter STAGE_NUM,
     parameter CLAUSE_NUM,
+    parameter WEIGHT_LENGTH,
     parameter CLAUSE_PER_STAGE = CLAUSE_NUM/STAGE_NUM
 )
 (
@@ -29,12 +30,12 @@ module weight_adder_tile #(
     input rst,
     input valid,
     input logic signed [CLAUSE_PER_STAGE - 1:0] clauses,
-    input logic signed [13:0]weights[CLAUSE_PER_STAGE - 1:0],
-    input [13:0] p_c_sum_in,
-    output reg [13:0]p_c_sum
+    input logic signed [WEIGHT_LENGTH - 1:0] weights[CLAUSE_PER_STAGE - 1:0],
+    input [WEIGHT_LENGTH - 1:0] p_c_sum_in,
+    output reg [WEIGHT_LENGTH - 1:0]p_c_sum
 );
-    reg[13:0] c_sum[CLAUSE_PER_STAGE - 1:0];
-    reg [13:0]weight[CLAUSE_PER_STAGE - 1:0];
+    reg[WEIGHT_LENGTH - 1:0] c_sum[CLAUSE_PER_STAGE - 1:0];
+    reg [WEIGHT_LENGTH - 1:0]weight[CLAUSE_PER_STAGE - 1:0];
     generate 
         genvar k;
         for (k = 0 ; k < CLAUSE_PER_STAGE; k = k + 1) begin
@@ -59,17 +60,18 @@ endmodule
 module weighted_adder_new #(
     parameter STAGE_NUM,
     parameter CLAUSE_NUM,
+    parameter WEIGHT_LENGTH,
     parameter CLAUSE_PER_STAGE = CLAUSE_NUM/STAGE_NUM
 )
 (clauses, valid, weights, c_sum_out, clk, finished);
     input logic signed clk; 
     input logic signed valid;
 	input logic signed [CLAUSE_NUM - 1:0] clauses;
-	input logic signed [13:0] weights [CLAUSE_NUM];
-	output reg [13:0] c_sum_out;
+	input logic signed [WEIGHT_LENGTH - 1:0] weights [CLAUSE_NUM];
+	output reg [WEIGHT_LENGTH - 1:0] c_sum_out;
 	output reg finished;
 	logic half_complete;
-	reg[13:0] c_sum[STAGE_NUM:0];
+	reg[WEIGHT_LENGTH - 1:0] c_sum[STAGE_NUM:0];
 	reg [STAGE_NUM - 1:0] done;
 	//reg [13:0] c_sum_reg[STAGE_NUM:0];
 	
@@ -80,6 +82,7 @@ module weighted_adder_new #(
             weight_adder_tile #(
                 .STAGE_NUM(STAGE_NUM),
                 .CLAUSE_NUM(CLAUSE_NUM),
+                .WEIGHT_LENGTH(WEIGHT_LENGTH),
                 .CLAUSE_PER_STAGE(CLAUSE_PER_STAGE)
             )
             w_tile (
@@ -124,6 +127,7 @@ endmodule
 module Adder_new #(
     parameter CLAUSE_NUM,
     parameter CLASS_NUM,
+    parameter WEIGHT_LENGTH,
     parameter STAGE_NUM
 )
 (clk, rst, clauses, class_sums, valid,adder_done);
@@ -131,10 +135,10 @@ module Adder_new #(
 	input logic rst;
 	input logic valid;
 	input logic [CLAUSE_NUM - 1:0] clauses;
-	output logic signed [13:0] class_sums [10];
+	output logic signed [WEIGHT_LENGTH - 1:0] class_sums [CLASS_NUM];
 	output reg adder_done;
-	logic signed [13:0] class_sums_local [10];
-	logic signed [13:0] weights [10][CLAUSE_NUM];
+	logic signed [WEIGHT_LENGTH - 1:0] class_sums_local [CLASS_NUM];
+	logic signed [WEIGHT_LENGTH - 1:0] weights [CLASS_NUM][CLAUSE_NUM];
 
 
     hard_coded_weight #(
@@ -144,13 +148,14 @@ module Adder_new #(
         .weights(weights)
     );
     
-    reg [9:0] weight_done;
+    reg [CLASS_NUM - 1:0] weight_done;
 	generate
 		genvar i;
-		for(i = 0; i < 10; i= i+1) begin 
+		for(i = 0; i < CLASS_NUM; i= i+1) begin 
 			weighted_adder_new #(
             .STAGE_NUM(STAGE_NUM),
-            .CLAUSE_NUM(CLAUSE_NUM)
+            .CLAUSE_NUM(CLAUSE_NUM),
+            .WEIGHT_LENGTH(WEIGHT_LENGTH)
 			)
 			adder_w(
 			    .valid(valid),

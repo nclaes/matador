@@ -50,7 +50,9 @@ module axis_adder_v1_0_S00_AXIS #
     // tuser signal width
     parameter USER_WIDTH = 1,
     // FIFO depth in cycles
-    parameter DEPTH = 1
+    parameter DEPTH = 1,
+    
+    parameter PACKETS_NUM
 )
 (
     input  wire                       clk,
@@ -79,7 +81,7 @@ module axis_adder_v1_0_S00_AXIS #
     output wire [ID_WIDTH-1:0]        m_axis_tid,
     output wire [DEST_WIDTH-1:0]      m_axis_tdest,
     output wire [USER_WIDTH-1:0]      m_axis_tuser,
-    output reg [12:0] valid,
+    output reg [PACKETS_NUM - 1:0] valid,
     /*
      * Status
      */
@@ -131,6 +133,7 @@ assign count = ptr_reg;
 reg stat;
 reg op_stat;
 reg old_tvalid;
+reg old_m_tready;
 reg [12:0] valid_reg;
 reg [12:0] old_valid_reg;
 reg old_s_axis_tlast;
@@ -152,14 +155,16 @@ integer flag;
 always @(posedge clk) begin
     old_tvalid <= s_axis_tvalid;
     old_s_axis_tlast <= s_axis_tlast;
+    old_m_tready <= m_axis_tready;
     if (old_tvalid && s_axis_tvalid) begin
-        old_valid_reg <= valid_reg;
-        valid <= old_valid_reg;
-//        valid <= valid_reg;
+//        old_valid_reg <= valid_reg;
+//        valid <= old_valid_reg;
+        valid <= valid_reg;
     end
 
     if (rst) begin
-        valid_reg <= 13'b0000000000001;
+        //valid_reg <= 13'b0000000000001;
+        valid_reg <= {{(PACKETS_NUM - 1){1'b0}},{1'b1}};
         stat = 0;
         flag = 0;
         inf_stat = 0;
@@ -179,12 +184,15 @@ always @(posedge clk) begin
         else if (old_tvalid && s_axis_tvalid && m_axis_tready) begin
             m_axis_tdata = s_axis_tdata;
             valid_reg <= {valid_reg[11:0],valid_reg[12]};
-            s_axis_ready <= 1;
+            s_axis_ready = 1;
             //flag = 1;
         end
         else if (!s_axis_tvalid && old_tvalid) begin
-            s_axis_ready <= 0;
+            s_axis_ready = 0;
             //flag = 2;
+        end
+        else if (!m_axis_tready && old_m_tready) begin
+            s_axis_ready = 0;
         end
     end
 end

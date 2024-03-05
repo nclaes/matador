@@ -24,3 +24,6 @@ Human Activity : 2947 x 816 x 7
 Mammographic Mass : 193 x 40 x 2
 EMG : 11424 x 96 x 7
 Sensorless Drive : 11702 x 480 x 12
+
+
+Have a look at this link: https://eloquentarduino.github.io/2020/12/tinyml-benchmark-table/
