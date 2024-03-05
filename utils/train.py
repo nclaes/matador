@@ -141,22 +141,22 @@ if __name__ == "__main__":
 
         TM_file = open(args.output_dir + "/" + TM_file_name, "w")
         clauses_2 = int(int(config["Clauses"]) /2)
-        print("clauses/2: ", clauses_2)
+        # print("clauses/2: ", clauses_2)
 
         for i in range(int(config["Classes"])):
-            for j in range(int(config["Clauses"])):
-                # this is for handling the clause polarity
+            for j in range(clauses_2):
                 TAs = []
                 for k in range(int(config["features"])*2):
                     ta = tm.get_ta_action(j, k, i, polarity=0)
                     TAs.append(int(ta))
-                # print(TAs)
-                # now we need to rewrite the TAs in the the right order
+
                 for TA_ in range(int(config["features"])):
                     TM_file.write(str(int(TAs[TA_])) + " " + str(int(TAs[int(config["features"]) + TA_])) + " ")
 
-                # for k in range(int(config["features"]*2)):
-                #     ta = tm.get_ta_action(j, k, i, polarity=1)
-                #     TM_file.write(str(int(ta)) + " ")
+                TAs = []
+                for k in range(int(config["features"])*2):
+                    ta = tm.get_ta_action(j, k, i, polarity=1)
+                    TAs.append(int(ta))
 
-
+                for TA_ in range(int(config["features"])):
+                    TM_file.write(str(int(TAs[TA_])) + " " + str(int(TAs[int(config["features"]) + TA_])) + " ")

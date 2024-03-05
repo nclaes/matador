@@ -20,7 +20,8 @@
   # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 
-import numpy as np 
+import numpy as np #
+import math
 from math import ceil 
 from math import log
 import os
@@ -57,6 +58,183 @@ project_config_file = open(output_dir+"/config.json")
 project_config = json.load(project_config_file)
 
 Matador_home_path = project_config["Matador_home_path"]
+
+
+def pack_data():
+
+	mnist_file = test_data
+	File_data = np.loadtxt(mnist_file, dtype=int)
+	number_of_examples = 10
+	# Remove the class cols 
+	cols = File_data[:, -1]
+
+	f = open(output_dir + "/RTL/expected_answers.txt", "w")
+	for i in range(number_of_examples):
+		f.write(str(cols[i])+"\n")
+	f.close()
+
+	File_data = File_data[:, :-1]
+	AXI_bus_size =  AXI_data_width
+
+	print("	[RTL_gen][d] Number of features:\t\t", File_data[0].shape[0])
+	print(File_data[0])
+
+	print("	[RTL_gen][d] Packets:\t\t\t", File_data[0].shape[0]/AXI_bus_size)
+	print("	[RTL_gen][d] Number of Extra packet(s):\t", math.ceil(File_data[0].shape[0]/AXI_bus_size) - math.floor(File_data[0].shape[0]/AXI_bus_size))
+	print("	[RTL_gen][d] Number of packets required:\t", math.ceil(File_data[0].shape[0]/AXI_bus_size))
+
+	mnist_packets = []
+	packet_32 = []
+	packet_counter = 0 
+
+	for j in range(number_of_examples):
+		for i in range(File_data[j].shape[0]):
+			if packet_counter <= AXI_bus_size-1: 
+				packet_32.append(File_data[j][i])
+			else: 
+				mnist_packets.append(packet_32)
+				packet_32 = []
+				# print(i)
+				packet_counter = 0
+				packet_32.append(File_data[j][i])
+
+			packet_counter += 1
+
+		# If datapoint is complete and packet is not fully filled...
+		# Fill the remainder with zeros 
+		if(len(packet_32) != 0):
+			# print("Half filled packet: ", len(packet_32))
+			remainder_zero_fill = AXI_bus_size -len(packet_32)   
+			for l in range(remainder_zero_fill):
+				packet_32.append(0)
+			
+			mnist_packets.append(packet_32)
+			packet_counter = 0
+			packet_32 = []
+	# convert the list of lists to a numpy array 
+	mnist_packets_np_1 = np.array(mnist_packets)
+	mnist_packets_np  = np.fliplr(mnist_packets_np_1)
+	# print(mnist_packets_np)
+	# now convert each 32 number array to its equivalent binary 
+	# this will be the 32 bit packet sent each time 
+	mnist_packets_np_bits =np.packbits(mnist_packets_np_1, axis=-1,  bitorder='little')
+	mnist_packets_np_bits.dtype = np.uint64
+	# print(mnist_packets_np_bits)
+	# now the mnist data is in 32 bit packets -- we can write the testbench 
+	
+	tb_file_test = output_dir + "/RTL/test_data_copy_paste_examples.mem"
+	f = open(tb_file_test, "w")
+
+	for i in range(mnist_packets_np.shape[0]):
+		# if i %13 == 0:
+			# print("------")
+		# print(mnist_packets_np_bits[i])
+		print(''.join(map(str, mnist_packets_np[i])), file=f)
+
+def write_testbench(tb_file):
+	with open(tb_file, "w") as f:
+		print("module axis_stream_tb();", file=f)
+		print("\t\tparameter C_S00_AXIS_DATA_WIDTH = %d;"% AXI_data_width, file=f)
+		print("\t\tparameter C_M00_AXIS_DATA_WIDTH = %d;"% AXI_data_width, file=f)
+		print("\t\tparameter NUM_PACKETS = %d;"% int(number_of_blocks), file=f)
+		print("\t\tparameter DATAPOINTS = %d;" % 10, file=f)
+		print("""
+
+    reg clock;
+    reg areset;
+    
+    reg s00_axis_tready;
+    reg m00_axis_tready;
+    reg s00_last;
+    reg m00_last; 
+    reg m00_valid; 
+    reg s00_valid; 
+    reg [C_S00_AXIS_DATA_WIDTH-1:0] payload; 
+    reg [C_M00_AXIS_DATA_WIDTH-1:0] recieved;
+    reg [63:0] input_data [0:DATAPOINTS * NUM_PACKETS - 1]; 
+    
+    wire [7:0] bytes; 
+    int input_counter = 0; 
+    
+    reg last_triggered; 
+    
+    axis_wrapper_top  
+        DUT(
+            .s00_axis_aclk(clock),
+            .s00_axis_aresetn(areset),
+            .s00_axis_tready(s00_axis_tready),                  
+            .s00_axis_tdata(payload),
+            .s00_axis_tstrb(bytes),
+            .s00_axis_tlast(s00_last),
+            .s00_axis_tvalid(s00_valid),
+            .m00_axis_aclk(clock),
+            .m00_axis_aresetn(areset),
+            .m00_axis_tready(m00_axis_tready),
+            .m00_axis_tdata(recieved),                                                     
+            .m00_axis_tlast(m00_last),                          
+            .m00_axis_tvalid(m00_valid)                        
+        );
+ 
+    initial begin    
+        last_triggered = 1'b0;                                          
+        #0 clock = 0;
+        forever begin
+            #20 clock = ~clock;
+        end 
+    end
+    initial begin     
+        $readmemb("test_data_copy_paste_100_new_examples.mem", input_data);
+        areset <= 1'b1;
+        #20 s00_last        <= 1'b0;
+        #20 areset          <= 1'b0;
+        #20 areset          <= 1'b1;
+        #20 s00_valid       <= 1'b0;
+        m00_axis_tready     <= 1'b1;
+        #20 payload         <= input_data[0];
+        s00_valid           <= 1'b1;
+    end
+    integer cnt = 0;
+    always @(posedge clock) begin  
+        if(s00_axis_tready && s00_valid) begin
+            if(input_counter == DATAPOINTS*NUM_PACKETS-2) begin 
+               s00_last     <= 1'b1;  
+            end
+			// Note you may have to change this line here 
+            else if (input_counter == 160) begin
+                s00_valid = 0;
+            end
+            
+            if(s00_last == 1'b1) begin 
+                s00_last    <= 1'b0;
+                s00_valid   <= 1'b0;
+            end
+            input_counter   = input_counter + 1;
+            payload         = input_data[input_counter];
+        end 
+        else if (!s00_valid) begin
+            if (cnt < NUM_PACKETS-1) begin
+                cnt = cnt + 1;
+            end
+            else if (cnt == NUM_PACKETS-1) begin
+                s00_valid = 1;
+                cnt = 0;
+            end
+        end
+        
+        if(m00_last) begin 
+            last_triggered = 1'b1;
+        end 
+        else if(last_triggered) begin 
+            input_counter = 0; 
+            s00_last    <= 1'b0;
+            s00_valid   <= 1'b1;
+            last_triggered = 1'b0;
+            payload         <= input_data[0];
+        end
+    end
+
+endmodule
+	""", file=f)
 
 # View from the bottom of this file to see how everything fits together ;) 
 def get_bits_required(Weights_file):
@@ -119,7 +297,10 @@ def vanilla_tm_write_axis_wrapper(axis_wrapper_f):
 		print("\t\tparameter STAGE_NUM = %d," %(adder_stages), file=f)
 		print("\t\tparameter CLAUSE_NUM = %d," %(clauses), file=f)
 		print("\t\tparameter CLASS_NUM = %d," %(classes), file=f)
-		# print("\t\tparameter WEIGHT_LENGTH = %d," %(bits_required), file=f)
+		# in this clase the weight length is not so useful - its not for the weights themselves
+		# this is used as how many bits to represent the class sum 
+		bits_required = int(ceil(log(clauses, 2)) - 1)
+		print("\t\tparameter WEIGHT_LENGTH = %d," %(bits_required), file=f)
 		print("\t\tparameter FEATURE_NUM = %d," %(features), file=f)
 		print("\t\tparameter PACKETS_NUM = (FEATURE_NUM - 1)/C_S00_AXIS_TDATA_WIDTH + 1,", file=f)
 		print("\t\tparameter VANILLA = 1,", file=f)
@@ -138,7 +319,7 @@ def vanilla_tm_write_axis_wrapper(axis_wrapper_f):
 		//test ports
 		output wire [PACKETS-1:0] valid_reg,
 	    output wire [C_S00_AXIS_TDATA_WIDTH-1:0] axis2pipe_data,
-        output wire [CLAUSE_NUM - 1:0] clauses,
+        output wire [CLAUSE_NUM - 1:0] clauses [CLASS_NUM - 1:0],
 	    output logic signed [WEIGHT_LENGTH-1:0] class_sums [CLASS_NUM],
 		// Ports of Axi Master Bus Interface M00_AXIS
 		input  wire  m00_axis_aclk,
@@ -271,20 +452,20 @@ def write_top(filename):
 		print("\tparameter PACKETS_NUM", file=f)
 		print(")", file=f)
 
-		print("(x, y, packet_counter, valid, s_axis_ready, clk, finish, last, last_out,", file=f)
+		print("(x, y, packet_counter, valid, s_axis_tready, clk, finish, last, last_out,", file=f)
 		print("clauses, class_sums, m00_axis_tready);", file=f)
 		print("\tinput logic clk;", file=f)
 		print("\toutput logic finish;", file=f)
-		print("\toutput logic [CLAUSE_NUM - 1:0] clauses;", file=f)
+		print("\toutput logic [CLAUSE_NUM - 1:0] clauses [CLASS_NUM - 1:0];", file=f)
 		print("\toutput logic signed [WEIGHT_LENGTH - 1:0] class_sums [%d];" %(classes), file=f)
-		print("\tinput logic s_axis_ready;", file=f)
+		print("\tinput logic s_axis_tready;", file=f)
 		print("\tinput logic m00_axis_tready;", file=f)
-		print("\tinput logic [C_M00_AXIS_TDATA_WIDTH:0] x;", file=f)
+		print("\tinput logic [C_M00_AXIS_TDATA_WIDTH-1:0] x;", file=f)
 		print("\tinput logic [PACKETS_NUM - 1:0] valid;", file=f)
 		print("\tinput logic last;", file=f)
 		print("\toutput logic last_out;", file=f)
-		print("\tinput logic [C_M00_AXIS_TDATA_WIDTH:0] packet_counter;", file=f)
-		print("\toutput logic [C_M00_AXIS_TDATA_WIDTH:0] y;", file=f)
+		print("\tinput logic [C_M00_AXIS_TDATA_WIDTH-1:0] packet_counter;", file=f)
+		print("\toutput logic [C_M00_AXIS_TDATA_WIDTH-1:0] y;", file=f)
 
 
 		print("", file=f)
@@ -300,7 +481,7 @@ def write_top(filename):
 		print("\tlogic last_registered;", file=f)
 		print("\tassign finish = finished;", file=f)
 
-		print("\tlogic [CLAUSE_NUM - 1:0] partial_clause_reg;", file=f)
+		print("\tlogic [CLAUSE_NUM - 1:0] partial_clause_reg [CLASS_NUM - 1:0];", file=f)
 		print("", file=f)
 
 		print("\tassign clauses = partial_clause_reg;", file=f)
@@ -340,6 +521,8 @@ def write_top(filename):
 
 		print("""
 
+    always @(posedge clk) begin
+    end
     reg old_adder_valid;
 	always @(posedge clk) begin
 	   old_adder_valid <= valid[12];
@@ -352,7 +535,7 @@ def write_top(filename):
 	   else if(adder_done && adder) begin
 	       adder = 0; 
 	       argmax = 1; 
-	   end 
+	   end
 	   else if(argmax && m00_axis_tready) begin 
 	       argmax = 0;
 	       finished = 1;
@@ -368,22 +551,26 @@ def write_top(filename):
 	       end
 	   end
 	end
-	Adder_new #(
-	.STAGE_NUM(STAGE_NUM),
+	
+    logic signed [WEIGHT_LENGTH - 1:0] class_sums_co [CLASS_NUM];
+    logic signed [WEIGHT_LENGTH - 1:0] class_sums_org [CLASS_NUM];
+    
+    logic adder_done_co,adder_done_org;
+
+    org_adder#(
     .CLAUSE_NUM(CLAUSE_NUM),
     .CLASS_NUM(CLASS_NUM),
     .WEIGHT_LENGTH(WEIGHT_LENGTH)
-	)add_inst
-	(
-		.clk(clk),
-		.clauses(partial_clause_reg),
-		.class_sums(class_sums),
-		.valid(adder),
-		.adder_done(adder_done)
-	);
-
+    )
+    org_add(
+    .clk(clk),
+    .valid(valid[PACKETS_NUM]),
+    .clause(partial_clause_reg),
+    .class_sums(class_sums),
+    .adder_done(adder_done)
+    );
+    
 	classify #(
-	//.CLAUSE_NUM(CLAUSE_NUM),
     .CLASS_NUM(CLASS_NUM),    
     .WEIGHT_LENGTH(WEIGHT_LENGTH),
     .C_M00_AXIS_TDATA_WIDTH(C_M00_AXIS_TDATA_WIDTH)
@@ -597,16 +784,6 @@ if(TM_type == "Tsetlin Machine: Vanilla "):
 	# write the hard coded clause block code - this one is for vanilla TM
 	hard_coded_blocks 	= output_dir + "/RTL/TM_Hard_Coded_Clause_Blocks.sv"
 
-	# The TAs need to be reshaped to fix the TMU issue 
-	# the TAs may be arranged differently according to the type of implementation used 
-	# for TMU the bit packed TAs are arranged as "[FEATURES][COMPLEMENTS]" whereas for
-	# other implementatios they will be arranged as "[FEATURE]["COMPLEMENT"][FEATURE]..."
-	# This tool curruently uses TMU so we are using the former method - however we have
-	# also written the other way if needed - just switch the codes where it says.
-
-
-
-
 	vanilla_tm_write_hard_coded_blocks(number_of_blocks, TAs, hard_coded_blocks)
 	print("")
 	print("	[RTL_gen]	TM_Hard_Coded_Clause_Blocks.sv \tis written")
@@ -638,13 +815,27 @@ if(TM_type == "Tsetlin Machine: Vanilla "):
 	os.system("cp "+Matador_home_path+"/utils/RTL_templates/decoder.sv "+ output_dir+"/RTL")
 	print("	[RTL_gen]	decoder.sv \t\tis added")
 
-	os.system("cp "+Matador_home_path+"/utils/RTL_templates/new_adder.sv "+ output_dir+"/RTL")
-	print("	[RTL_gen]	new_adder.sv \t\tis added")
+	# new adder now corresponds to the Coalesced TM implementation
+	# os.system("cp "+Matador_home_path+"/utils/RTL_templates/new_adder.sv "+ output_dir+"/RTL")
+	# print("	[RTL_gen]	new_adder.sv \t\tis added")
 
 	os.system("cp "+Matador_home_path+"/utils/RTL_templates/AXI_Interface.sv "+ output_dir+"/RTL")
 	print("	[RTL_gen]	AXI_Interface.sv \tis added")
 
 	print("	----------------------------------------")
+
+	print("	----------------------------------------")
+	print("		    Testbench generation			")
+	print("	----------------------------------------")
+
+	tb 	= output_dir + "/RTL/testbench.sv"
+	pack_data()
+	write_testbench(tb)
+
+
+
+
+
 	print("")
 	print("	[RTL_gen][d] 	If there are issues - check debug [d]")
 
