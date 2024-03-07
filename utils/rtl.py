@@ -564,7 +564,7 @@ def write_top(filename):
     )
     org_add(
     .clk(clk),
-    .valid(valid[PACKETS_NUM]),
+    .valid(valid[PACKETS_NUM-1]),
     .clause(partial_clause_reg),
     .class_sums(class_sums),
     .adder_done(adder_done)

@@ -1,0 +1,12 @@
+{
+   "TM":"Tsetlin Machine: Vanilla ",
+   "Output_Directory":"kk2",
+   "TAs"          : "/home/tousif/Desktop/Matador_Docker/kk/TM_TA_states_Clauses_100_s_value_8_T_value_15_epochs_10_max_literals_6",
+   "Weights"      : "",
+   "Classes"      : "10",
+   "Clauses"      : "100",
+   "BusWidth"     : "64",
+   "Features"     : "784",
+   "Adder_Stages" : "4",
+   "Test_Data"    : "/home/tousif/Desktop/Boolean_datasets/MNIST/mnist_test.txt"
+}
