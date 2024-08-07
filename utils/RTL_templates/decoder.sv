@@ -27,6 +27,7 @@ module org_adder #(
     (
     input clk,
     input valid,
+    input m00_axis_tready,
     input [CLAUSE_NUM - 1:0] clause[CLASS_NUM],
     output signed [WEIGHT_LENGTH - 1:0] class_sums [CLASS_NUM],
     output reg adder_done
@@ -43,6 +44,7 @@ module org_adder #(
             dec(
             .clk(clk),
             .valid(valid),
+            .m00_axis_tready(m00_axis_tready),
             .clause(clause[i]),
             .class_sum(class_sums[i]),
             .adder_done(done[i])
@@ -51,10 +53,18 @@ module org_adder #(
         end
     endgenerate
     always@ (posedge clk) begin
-        if (done == {CLASS_NUM{1'b1}}) begin
+//        if (done == {CLASS_NUM{1'b1}}) begin
+//            adder_done = 1;
+//        end
+//        else if (done == {CLASS_NUM{1'b0}}) begin
+//            adder_done = 0;
+//        end
+    end
+    always_comb begin
+                if (done == {CLASS_NUM{1'b1}}) begin
             adder_done = 1;
         end
-        else if (done == {CLASS_NUM{1'b0}}) begin
+        else begin
             adder_done = 0;
         end
     end
@@ -67,6 +77,7 @@ module decoder  #(
     (
     input clk,
     input valid,
+    input m00_axis_tready,
     input [CLAUSE_NUM - 1:0] clause,
     output logic signed [WEIGHT_LENGTH - 1:0] class_sum,
     output reg adder_done
@@ -75,12 +86,13 @@ module decoder  #(
     wire [CLAUSE_NUM/2 - 1:0] pos_clause;
     wire [CLAUSE_NUM/2 - 1:0] neg_clause;
     reg valid_reg;
-    
+    reg hold;
     integer sum_int;
     
     initial begin
         class_sum =  {WEIGHT_LENGTH{1'b0}};
         adder_done = 0;
+        hold = 0;
     end
     
     generate
@@ -94,7 +106,7 @@ module decoder  #(
     integer j;
     always@ (posedge clk) begin
         valid_reg <= valid;
-        if (valid && !valid_reg) begin
+        if (valid) begin
             sum_int = 0;
             for (j = 0; j < CLAUSE_NUM/2; j = j + 1) begin
                 if (pos_clause[j] && !neg_clause[j]) begin
@@ -104,10 +116,13 @@ module decoder  #(
                     sum_int = sum_int - 1;
                 end
             end
+            if (m00_axis_tready) begin
+                hold = 1;
+            end
             adder_done = 1;
             class_sum = sum_int;
         end
-        else if (!valid) begin
+        else if (!valid && m00_axis_tready) begin
             adder_done = 0;
         end
     end

@@ -55,33 +55,34 @@ module axis_adder_v1_0_S00_AXIS #
     parameter PACKETS_NUM
 )
 (
-    input  wire                       clk,
-    input  wire                       rst,
+    input  wire                         clk,
+    input  wire                         rst,
 
     /*
      * AXI input
      */
-    input  wire [DATA_WIDTH-1:0]      s_axis_tdata,
-    input  wire [KEEP_WIDTH-1:0]      s_axis_tkeep,
-    input  wire                       s_axis_tvalid,
-    output wire                       s_axis_tready,
-    input  wire                       s_axis_tlast,
-    input  wire [ID_WIDTH-1:0]        s_axis_tid,
-    input  wire [DEST_WIDTH-1:0]      s_axis_tdest,
-    input  wire [USER_WIDTH-1:0]      s_axis_tuser,
+    input  wire [DATA_WIDTH-1:0]        s_axis_tdata,
+    input  wire [KEEP_WIDTH-1:0]        s_axis_tkeep,
+    input  wire                         s_axis_tvalid,
+    output wire                         s_axis_tready,
+    input  wire                         s_axis_tlast,
+    input  wire [ID_WIDTH-1:0]          s_axis_tid,
+    input  wire [DEST_WIDTH-1:0]        s_axis_tdest,
+    input  wire [USER_WIDTH-1:0]        s_axis_tuser,
     output wire full,
     /*
      * AXI output
      */
-    output reg [DATA_WIDTH-1:0]      m_axis_tdata,
-    output wire [KEEP_WIDTH-1:0]      m_axis_tkeep,
-    output reg                       m_axis_tvalid,
-    input  wire                       m_axis_tready,
-    output wire                       m_axis_tlast,
-    output wire [ID_WIDTH-1:0]        m_axis_tid,
-    output wire [DEST_WIDTH-1:0]      m_axis_tdest,
-    output wire [USER_WIDTH-1:0]      m_axis_tuser,
-    output reg [PACKETS_NUM - 1:0] valid,
+    output reg [DATA_WIDTH-1:0]         m_axis_tdata,
+    output wire [KEEP_WIDTH-1:0]        m_axis_tkeep,
+    output reg                          m_axis_tvalid,
+    input  wire                         m_axis_tready,
+    output wire                         m_axis_tlast,
+    output wire [ID_WIDTH-1:0]          m_axis_tid,
+    output wire [DEST_WIDTH-1:0]        m_axis_tdest,
+    output wire [USER_WIDTH-1:0]        m_axis_tuser,
+    output reg                          valid,
+    output reg [31:0]                   flag_out,
     /*
      * Status
      */
@@ -134,69 +135,53 @@ reg stat;
 reg op_stat;
 reg old_tvalid;
 reg old_m_tready;
-reg [12:0] valid_reg;
-reg [12:0] old_valid_reg;
+reg [PACKETS_NUM - 1:0] valid_reg;
+reg [PACKETS_NUM - 1:0] old_valid_reg;
 reg old_s_axis_tlast;
 reg inf_stat;
+reg valid_en;
 integer i;
 
 initial begin
 //    s_axis_ready = 0; 
-//    for (i = 0; i < DEPTH; i = i + 1) begin
-//        data_reg[i] <= 0;
-//    end
-//    valid = 13'b0000000000001;
+    valid = '0;
+    valid_reg = '0;
+    valid_reg[0] = 1'b1;
+    old_valid_reg = '0;
     old_tvalid = 0;
     old_s_axis_tlast = 0;
+    valid_en = 0;
+    s_axis_ready = 1;
 end
+
+
+
 assign full = full_reg;
-
+//Behavioral simulation
+//assign m_axis_tdata = s_axis_tdata;
+//assign valid = s_axis_tvalid && s_axis_ready;
 integer flag;
-always @(posedge clk) begin
-    old_tvalid <= s_axis_tvalid;
-    old_s_axis_tlast <= s_axis_tlast;
-    old_m_tready <= m_axis_tready;
-    if (old_tvalid && s_axis_tvalid) begin
-//        old_valid_reg <= valid_reg;
-//        valid <= old_valid_reg;
-        valid <= valid_reg;
-    end
 
+always@(posedge clk) begin
     if (rst) begin
-        //valid_reg <= 13'b0000000000001;
-        valid_reg <= {{(PACKETS_NUM - 1){1'b0}},{1'b1}};
-        stat = 0;
-        flag = 0;
-        inf_stat = 0;
+        s_axis_ready = 1;
     end
-    else begin  
-        
-        if (!old_s_axis_tlast && s_axis_tlast) begin
-            //valid_reg <= 13'b0000000000000;
-            inf_stat = 0;
+    else begin
+        if (!m_axis_tready) begin
+            s_axis_ready = 0;
         end
-        else 
-        if (!old_tvalid && s_axis_tvalid) begin
-            //valid_reg <= 13'b0000000000001;
-            inf_stat = 1;
-//            valid_reg <= {valid_reg[11:0],valid_reg[12]};
-        end
-        else if (old_tvalid && s_axis_tvalid && m_axis_tready) begin
-            m_axis_tdata = s_axis_tdata;
-            valid_reg <= {valid_reg[11:0],valid_reg[12]};
+        else begin
             s_axis_ready = 1;
-            //flag = 1;
         end
-        else if (!s_axis_tvalid && old_tvalid) begin
-            s_axis_ready = 0;
-            //flag = 2;
-        end
-        else if (!m_axis_tready && old_m_tready) begin
-            s_axis_ready = 0;
+        if (s_axis_tvalid && s_axis_ready) begin
+            //On board
+            m_axis_tdata <= s_axis_tdata;
         end
     end
+    //On board
+    valid = s_axis_tvalid && s_axis_ready;
 end
-
+assign flag_out = flag;
 endmodule
 
 `resetall

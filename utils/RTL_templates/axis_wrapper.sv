@@ -30,14 +30,17 @@ module axis_wrapper_top #
 		parameter integer C_M00_AXIS_TDATA_WIDTH	= 64,
 		//design configuration
 		parameter STAGE_NUM = 4,
-        parameter CLAUSE_NUM = 500,
+        parameter CLAUSE_NUM = 200,
         parameter CLASS_NUM = 10,
         parameter WEIGHT_LENGTH = 14,
         parameter FEATURE_NUM = 784,
-        parameter PACKETS_NUM = (FEATURE_NUM - 1)/C_S00_AXIS_TDATA_WIDTH + 1
+        parameter PACKETS_NUM = (FEATURE_NUM - 1)/C_S00_AXIS_TDATA_WIDTH + 1,
+        
+        parameter VANILLA = 0,
+        parameter COALESCED = 1
 	)
 	(
-		// Ports of Axi Slave Bus Interface S00_AXIS
+
 		input  wire    s00_axis_aclk,
 		input  wire    s00_axis_aresetn,
 		input  wire    [C_S00_AXIS_TDATA_WIDTH-1 : 0] s00_axis_tdata,
@@ -45,12 +48,13 @@ module axis_wrapper_top #
 		input  wire    s00_axis_tlast,
 		input  wire    s00_axis_tvalid,
 		output wire    s00_axis_tready,
-		//test port
+
 		output wire [12:0] valid_reg,
 	    output wire [C_S00_AXIS_TDATA_WIDTH-1:0] axis2pipe_data,
-        output wire [CLAUSE_NUM - 1:0] clauses,
+        output wire [CLAUSE_NUM - 1:0] clauses [CLASS_NUM - 1:0],
 	    output logic signed [WEIGHT_LENGTH-1:0] class_sums [CLASS_NUM],
-		// Ports of Axi Master Bus Interface M00_AXIS
+        output reg [31:0]                   flag_out,
+        
 		input  wire  m00_axis_aclk,
 		input  wire  m00_axis_aresetn,
 		input  wire  m00_axis_tready,
@@ -67,10 +71,6 @@ module axis_wrapper_top #
 	wire pipe2axis_tvalid, pipe2axis_tready, pipe2axis_tlast;
 	wire [C_M00_AXIS_TDATA_WIDTH-1:0] pipe2axis_data;
 	
-	//
-//	reg [3:0] flag_packet_counter;
-//    wire [$clog2(DEPTH+1)-1:0] ptr_reg;
-	
 	logic [63:0] packet_counter; 
 	logic full;
 	logic inference_complete;
@@ -78,21 +78,15 @@ module axis_wrapper_top #
 	logic last_complete;
     reg old_inference_complete,old_old_inference_complete;
     reg old_s00_axis_tlast,old_last_complete,old_old_last_complete;	
-	//assign axis2pipe_tready = 1'b1;
+
 	assign m00_axis_tvalid = old_inference_complete;
 	assign m00_axis_tlast = old_last_complete;	
 	
-	//internal signal, comment when testing	
-//    wire [12:0] valid_reg;
-//	wire [C_S00_AXIS_TDATA_WIDTH-1:0] axis2pipe_data;
-    //assign m00_axis_tlast = m00_axis_tvalid;
 	reg old_s00_axis_tready;
 	reg plus_stat;
 	initial begin
 	   m00_axis_tkeep = {(C_M00_AXIS_TDATA_WIDTH/8){1'b0}};
 	   packet_counter = 0;
-	   //valid_reg = 13'b0000000000000;
-	   //full = 0;
 	end
 
 	always @(posedge m00_axis_aclk) begin
@@ -115,9 +109,7 @@ module axis_wrapper_top #
 	   else if (s00_axis_tlast && !old_s00_axis_tlast) begin
 	       plus_stat = 0;
 	   end
-	   else if(axis2pipe_tready && s00_axis_tready && old_s00_axis_tready) begin 
-	       //full = 0;
-	       
+	   else if(axis2pipe_tready && s00_axis_tready && old_s00_axis_tready) begin    
 	       if(plus_stat) begin 
 	           packet_counter = packet_counter + 1;
 	       end
@@ -150,7 +142,6 @@ module axis_wrapper_top #
 	   .m00_axis_tready(axis2pipe_tready),
 	   .packet_counter(packet_counter),
 	   .y(m00_axis_tdata),
-	   //test port 
 	   .clauses(clauses),
 	   .class_sums(class_sums),
 	   .finish(inference_complete),
@@ -158,7 +149,6 @@ module axis_wrapper_top #
 	   .last_out(last_complete)
 	);
 	
-	// Instantiation of Axi Bus Interface S00_AXIS
 	axis_adder_v1_0_S00_AXIS #(
 	   .PACKETS_NUM(PACKETS_NUM)
 	)
@@ -170,27 +160,10 @@ module axis_wrapper_top #
 		.s_axis_tready(s00_axis_tready),
 		.s_axis_tlast(s00_axis_tlast),
 		.valid(valid_reg),
-		//.ptr_reg(ptr_reg),
 		.full(full),
+		.flag_out(flag_out),
 		.m_axis_tdata(axis2pipe_data),
 		.m_axis_tvalid(axis2pipe_tvalid),
 		.m_axis_tready(axis2pipe_tready)
 	); 
-    // Instantiation of Axi Bus Interface M00_AXIS
-//	axis_adder_v1_0_M00_AXIS # ( 
-//		.ADDER_WIDTH(WIDTH)
-//	) 
-//	axis_adder_v1_0_M00_AXIS_inst (
-//		.clk(m00_axis_aclk),
-//		.rst(~m00_axis_aresetn),
-//		.input_axis_tdata(pipe2axis_data),
-//		.input_axis_tvalid(pipe2axis_tvalid),
-//		.input_axis_tready(pipe2axis_tready),
-//		.input_axis_tlast(pipe2axis_tlast),
-//		.output_axis_tdata(m00_axis_tdata),
-//		.output_axis_tvalid(m00_axis_tvalid),
-//		.output_axis_tready(m00_axis_tready),
-//		.output_axis_tlast(m00_axis_tlast)
-//	);
-	
 endmodule

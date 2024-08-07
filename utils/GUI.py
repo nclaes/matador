@@ -409,12 +409,17 @@ def uem():
     print(gen_RTL, "Requires TA file and or Weights file")
     print(" ")
     print("  ----------------------------------------------------------------------------")
-    print("                               Conversion Help                                ")
+    print("                   RTL Conversion Help - Read Carefully                       ")
     print("  ----------------------------------------------------------------------------")
-    print(gen_RTL, "Specify the TM type: [vanilla, coal]")
+    print(gen_RTL, "Specify the TM type: [vanilla, coalesced]")
+    print(gen_RTL, "The Matador you are using doesnt fully support coalTM yet")
+    print(gen_RTL, "Select Coalesced TM if you are prepared to use the debug process    ")
+    print("")
     print(gen_RTL, "Fill out the TM model specs - use the training.json if created")
     print(gen_RTL, "Bus Width: [32, 64] for FPGA, use others for custom impls")
     print(gen_RTL, "Adder Stages: number of pipeline stages in the adder")
+    print(gen_RTL, "If you are using Vanilla TM set Adder Stages to 4")
+    print(gen_RTL, "If you are using Vanilla TM leave the Weights file blank")
     print("  ----------------------------------------------------------------------------")
     print(" ")
 
@@ -478,45 +483,49 @@ def create_accel():
     # create the accelerator
     # first check for if the directory has been specified 
     global output_dir
-    print("\t\tChecking Output Directory: ", output_dir)
+    print(synth_impl, "Checking Output Directory: ", output_dir)
 
     global vivado_dir
-    print("\t\tChecking Vivado Path: ", vivado_path)
-    print("\t\tChecking for model type...")
+    print(synth_impl, "Checking Vivado Path: ", vivado_path)
 
-    # Open training config.json - if it doesn't exist it must be created 
-    if os.path.isdir(output_dir+"/training_config.json"):
-        if os.path.isdir(output_dir+"/RTL"):
-            print("\t\tRTL directory found")
+    if os.path.isdir(output_dir+"/RTL"):
+        print(synth_impl, "RTL directory found")
 
-            f = open("accel_config.json", "w")
-            f.write("{\n")
-            f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
-            f.write("   \"Vivado\"     : \"" + str(vivado_path) + "\"\n")
-            f.write("}\n")
-            f.close()
+        f = open("accel_config.json", "w")
+        f.write("{\n")
+        f.write("   \"Output_Directory\":\"" + str(output_dir) + "\",\n")
+        f.write("   \"Vivado\"     : \"" + str(vivado_path) + "\"\n")
+        f.write("}\n")
+        f.close()
 
-            exec_py = "python3 utils/Create_Bitstream.py"       
-            # subprocess.check_call(exec_py.split(), stdout=sys.stdout , stderr=subprocess.STDOUT)
-            p = subprocess.Popen(exec_py, shell=True, stdout=subprocess.PIPE, bufsize=1, text=True)
-            while True:
-                nextline = p.stdout.readline()
-                sys.stdout.write(nextline)
-                if nextline == '' and p.poll() is not None:
-                    break
-
-            print("Now this can be deployed on Pynq")
-        else:
-            print("RTL directory not found - please use the Setup option to set this")
-
+        exec_py = "python3 utils/synth_impl.py"       
+        # subprocess.check_call(exec_py.split(), stdout=sys.stdout , stderr=subprocess.STDOUT)
+        p = subprocess.Popen(exec_py, shell=True, stdout=subprocess.PIPE, bufsize=1, text=True)
+        while True:
+            nextline = p.stdout.readline()
+            sys.stdout.write(nextline)
+            if nextline == '' and p.poll() is not None:
+                break
     else:
-        print("\t\tError - training_config not found - please check")
+        print(synth_impl, "RTL directory not found")
+
 
 def run_Pynq():
     threading.Thread(target=pynq).start() 
 
 def pynq():
-    wb.open("192.168.2.99",new=2)
+    global output_dir
+    print("  The Pynq deployment is now depreciated - we deploy baremetal instead")
+    
+    exec_py = "python3 utils/deploy.py -output_dir " + str(output_dir) 
+    p = subprocess.Popen(exec_py, shell=True, stdout=subprocess.PIPE, bufsize=1, text=True)
+    while True:
+        nextline = p.stdout.readline()
+        sys.stdout.write(nextline)
+        if nextline == '' and p.poll() is not None:
+            break
+
+    # wb.open("192.168.2.99",new=2)
 
 def ole():
     print("""
@@ -540,10 +549,10 @@ def about():
         -------------------------------------------------------------
         MATADOR: autoMated dATa bAndwith Driven lOgic based infeRence
 
-        Copyright (C) 2023
+        Copyright (C) 2024
 
-        Matador is a tool for training and translating Coalesced 
-        Tsetlin Machines (CoTM) into FPGA accelerator systems. It co-
+        Matador is a tool for training and translating
+        Tsetlin Machines into FPGA accelerator systems. It co-
         verts learnt clause propositions into custom hard coded fast 
         inference circuits which are then streamed inference data 
         from the system's processor. The tool's configurable design 
@@ -556,11 +565,12 @@ def about():
         ------------------------------------------------------------- 
 
         """)
+    wb.open("https://arxiv.org/abs/2403.10538",new=2)
 
 # --- main ---    
 
 root = tk.Tk()
-root.title('Matador v1.2 (2023)')
+root.title('Matador v1.3 (2024)')
 
 root.geometry("840x445")
 root.resizable(0,0)
@@ -610,7 +620,7 @@ button.pack(pady=1)
 button = tk.Button(panel, text='About', width = 14, font='Terminal 9' ,command=run_About)
 button.pack(pady=1)
 
-button = tk.Button(panel, text='PYNQ', bg='pink',  font='Terminal 9' , width = 14, command=run_Pynq)
+button = tk.Button(panel, text='Deploy', bg='pink',  font='Terminal 9' , width = 14, command=run_Pynq)
 button.pack(pady=1)
 
 button = tk.Button(panel, text='Manual', bg="gray", fg = "white", font='Terminal 9' , width = 14, command=run_Manual)
@@ -628,7 +638,7 @@ sys.stdout = Redirect(text)
 print("                                                                            ")
 print("  Matador: autoMated dATa bAndwidth Driven lOgic based infeRence            ")
 print("                                                                            ")                                 
-print('  Copyright (C) T. Rahman , G. Mao (2023)                                   ')
+print('  Copyright (C) T. Rahman , G. Mao (2024)                                   ')
 print('                                                                            ')
 print('  Permission to use, copy, modify, and/or distribute this software for any  ')
 print('  purpose with or without fee is hereby granted, provided that the above    ')

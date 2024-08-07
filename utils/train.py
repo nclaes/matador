@@ -103,7 +103,7 @@ if __name__ == "__main__":
     # The data needs to go into some kind of dictionary with the x_train
     # y_train, x_test and y_test defined
     data = prep_data(config)
-    print(data)
+    # print(data)
 
     if(config["TM"] == "Tsetlin Machine: Vanilla "):
         tm = TMClassifier(
@@ -147,16 +147,21 @@ if __name__ == "__main__":
             for j in range(clauses_2):
                 TAs = []
                 for k in range(int(config["features"])*2):
-                    ta = tm.get_ta_action(j, k, i, polarity=0)
+                    ta = tm.get_ta_action(j, k, the_class=i, polarity=0)
                     TAs.append(int(ta))
 
-                for TA_ in range(int(config["features"])):
-                    TM_file.write(str(int(TAs[TA_])) + " " + str(int(TAs[int(config["features"]) + TA_])) + " ")
+                for TA_x_ in range(int(config["features"])):
+                    TM_file.write(str(int(TAs[TA_x_])) + " " + str(int(TAs[int(config["features"]) + TA_x_])) + " ")
 
                 TAs = []
                 for k in range(int(config["features"])*2):
-                    ta = tm.get_ta_action(j, k, i, polarity=1)
+                    ta = tm.get_ta_action(j, k, the_class=i, polarity=1)
                     TAs.append(int(ta))
 
-                for TA_ in range(int(config["features"])):
-                    TM_file.write(str(int(TAs[TA_])) + " " + str(int(TAs[int(config["features"]) + TA_])) + " ")
+                for TA_x_ in range(int(config["features"])):
+                    TM_file.write(str(int(TAs[TA_x_])) + " " + str(int(TAs[int(config["features"]) + TA_x_])) + " ")
+    
+        # perform inference 
+        # print(data["x_test"][0:5].shape)                    
+        # predictions = tm.predict(data["x_test"][0:5], return_class_sums=True)
+        # print("predictions and class sums: ", predictions)            
