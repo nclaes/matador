@@ -5,8 +5,10 @@ Automated ASIC and FPGA design for Tsetlin Machine Acclerators. The repo is orga
 | -------------------------------|----------------------------------------------------------------------------------- |
 | ```main```               | Used to give an overview of each Matador flow branch.   |
 |```development```             | Branch for automated FPGA accelerator design. |
+|```4adrian```             | Non-GUI version allowing developers to use the core MATADOR functions. |
 
-Contributors: Tousif Rahman, Gang Mao, Sidharth Maheshwari, Marcos Sartori, Shengyu Duan, Bob Pattison
+
+Contributors: Tousif Rahman, Gang Mao, Sidharth Maheshwari, Marcos Sartori, Shengyu Duan, Bob Pattison, Adrian Wheeldon
 
 
 
