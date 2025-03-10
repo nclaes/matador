@@ -1,0 +1,6 @@
+setup_ 			= "  [   SETUP   ]"
+train_model_ 	= "  [   TRAIN   ]"
+gen_RTL 		= "  [    RTL    ]"
+synth_impl		= "  [ SYNTH_IMPL ]"
+pynq			= "	 [    PYNQ    ]"
+bare_metal      = "  [  BR-METAL  ]"

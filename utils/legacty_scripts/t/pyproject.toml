@@ -1,0 +1,118 @@
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    "cffi>=1.0.0",
+    "tomli"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tmu"
+dynamic = ["version"]
+description = "Your project description"
+readme = "docs/long_description.rst"
+license.text = "MIT License"
+authors = [
+    { email = "ole.granmo@uia.no", name = "Ole-Christoffer Granmo" },
+    { email = "per.andersen@uia.no", name = "Per-Arne Andersen" }
+]
+dependencies = [
+    "cffi>=1.0.0",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "tqdm",
+    "requests"
+]
+requires-python = ">=3.10"
+
+# Include additional files
+[project.urls]
+homepage = "https://github.com/cair/tmu/"
+repository = "https://github.com/cair/tmu/"
+
+
+[tool.setuptools.package-dir]
+tmu = "tmu"
+
+[tool.setuptools.dynamic]
+version = {attr = "tmu.__version__"}
+
+[tool.cffi_builder]
+module_name = "tmu.tmulib"
+flags = [
+    "-O3", "-mrdrnd"
+]
+sources = [
+    "tmu/lib/src/ClauseBank.c",
+    "tmu/lib/src/Tools.c",
+    "tmu/lib/src/WeightBank.c",
+    "tmu/lib/src/ClauseBankSparse.c",
+    "tmu/lib/src/random/pcg32_fast.c",
+    "tmu/lib/src/random/xorshift128.c",
+]
+
+headers = [
+    "tmu/lib/include/ClauseBank.h",
+    "tmu/lib/include/Tools.h",
+    "tmu/lib/include/WeightBank.h",
+    "tmu/lib/include/ClauseBankSparse.h",
+    "tmu/lib/include/fast_rand_seed.h"
+]
+
+include_dir = "tmu/lib/include"
+
+
+
+
+[tool.cibuildwheel]
+build = "*"
+skip = ""
+test-skip = ""
+
+archs = ["auto"]
+build-frontend = "build"
+config-settings = {}
+dependency-versions = "pinned"
+environment = {}
+environment-pass = []
+build-verbosity = ""
+
+before-all = ""
+before-build = "rm -rf build"
+repair-wheel-command = ""
+
+test-command = ""
+before-test = ""
+test-requires = []
+test-extras = []
+
+container-engine = "docker"
+
+manylinux-x86_64-image = "manylinux2014"
+manylinux-i686-image = "manylinux2014"
+manylinux-aarch64-image = "manylinux2014"
+manylinux-ppc64le-image = "manylinux2014"
+manylinux-s390x-image = "manylinux2014"
+manylinux-pypy_x86_64-image = "manylinux2014"
+manylinux-pypy_i686-image = "manylinux2014"
+manylinux-pypy_aarch64-image = "manylinux2014"
+
+musllinux-x86_64-image = "musllinux_1_1"
+musllinux-i686-image = "musllinux_1_1"
+musllinux-aarch64-image = "musllinux_1_1"
+musllinux-ppc64le-image = "musllinux_1_1"
+musllinux-s390x-image = "musllinux_1_1"
+
+
+[tool.cibuildwheel.linux]
+before-all = "yum install -y libffi-devel || (apt-get update && apt-get install -y libffi-dev) || (apk --no-cache add libffi-dev)"
+
+
+#repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
+
+[tool.cibuildwheel.macos]
+repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
+
+[tool.cibuildwheel.windows]

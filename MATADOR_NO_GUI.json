@@ -1,0 +1,55 @@
+{
+    "Matador_Setup": {
+        "vivado_path"       : "/tools/Xilinx/Vivado/2023.2/bin/vivado",
+        "Matador_home_path" : "/home/tousif/Desktop/Matador_Docker"
+    },
+
+    "Flow Control":{
+        "Train_Model"   : "N",
+        "Generate_RTL"  : "Y",
+        "Synth + Impl"  : "N",
+        "Deploy"        : "N"
+    },
+
+    "Flow Control Notes": {
+        "Train_Model"   : "Y/N and then fill the Model _Training_Config section",
+        "Generate_RTL"  : "Y/N",
+        "Synth + Impl"  : "Y/N",
+        "Deploy"        : "Y/N",
+
+        "Notes" : "The flow control options are used to control the flow of the Matador tool. If you want to train the model, set the Train_Model option to Y. If you want to generate the RTL, set the Generate_RTL option to Y. If you want to synthesize and implement the design, set the Synth + Impl option to Y. If you want to deploy the design, set the Deploy option to Y."
+    },
+
+    "Model_Training_Config": {
+        "TM"            : "Coalesced",
+        "Clauses"       : "100",
+        "Classes"       : "10",
+        "s_value"       : "4.5",
+        "T_value"       : "40",
+        "epochs"        : "10",
+        "states"        : "256",
+        "features"      : "784",
+        "max_included_literals"   : "20",
+        "training_data"      : "/home/tousif/Desktop/Boolean_datasets/mnist_train.txt",
+        "test_data"          : "/home/tousif/Desktop/Boolean_datasets/mnist_train.txt"
+    },
+
+    "Model_Training_Notes": {
+        "TM Options": "The options for the TM line are Vanilla and Coalesced"
+
+    },
+
+    "Generate_RTL_Config": {
+        "Output_Directory"  : "MNIST_test",
+        "TM"                :"Coalesced",
+        "TAs"               : "TAs.txt",
+        "Weights"           : "weights.txt",
+        "Classes"           : "10",
+        "Clauses"           : "200",
+        "BusWidth"          : "64",
+        "Features"          : "784",
+        "Test_Data"         : "/home/tousif/Desktop/Boolean_datasets/mnist_test.txt"
+    }
+
+
+}

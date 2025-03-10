@@ -1,0 +1,71 @@
+
+.itemDesign .main
+{
+	position: relative;
+	height: 500px;
+	margin: 10px;
+	padding: 10px;
+	list-style-type: none;
+	color: black;
+}
+
+.itemDesign .item 
+{
+	float: left;
+	position: relative;
+	width: 100%;
+	margin: 20px;
+	height: 150px;
+}
+
+.itemDesign .item .itemContainer
+{
+	height: 100%;
+	width: 100%;
+}
+
+.itemDesign .item .info
+{
+	float: right;
+}
+
+.itemDesign .item h2
+{
+	font-family: Arial;
+	margin-top: 5px;
+	margin-bottom: 5px;
+}
+
+.itemDesign .item h3
+{
+	font-family: Arial;
+	font-size: 12px;
+	margin-top: 10px;
+	margin-bottom: 10px;	
+}
+
+.itemDesign .item .body
+{
+
+	font-family: Arial;
+	font-size: 12px;
+	margin-bottom: 20px;
+	
+}
+
+.itemDesign .item img
+{
+	position: relative;
+	left: 0px;
+	width: 240px;
+	height: 160px;
+	bottom: 0px;
+}
+
+
+.itemLink
+{
+	position: relative;
+	right: 0px;
+	bottom: 0px;
+}
