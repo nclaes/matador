@@ -13,8 +13,9 @@ def to_bin(val, bits):
     s = bin(val & int("1"*bits, 2))[2:]
     return ("{0:0>%s}" % (bits)).format(s)
 
-def write_weights(filename, bits_required, weights, classes, clauses): 
-
+def write_weights(filename, weights, bits_required, classes, clauses): 
+	weights = np.transpose(weights)
+	print(weights.shape)
 	with open(filename, "w") as f: 
 		# top level module for feeding in the weights and class_sums per class
 		print("module hard_coded_weight #(", file=f)
@@ -25,14 +26,15 @@ def write_weights(filename, bits_required, weights, classes, clauses):
 		print("", file=f)
 		for i in range(classes):
 			for j in range(clauses):
+				# print("weight:", i, j,  weights[i][j])
 				print("\tassign weights[%d][%d] \t=\t%d'b%s;" %(i, j, bits_required,to_bin(weights[i][j], bits_required)), file=f)
 
-def get_bits_required(Weights_file, clauses, classes):
+def get_bits_required(Weights_file, classes, clauses):
     Weights = []
-    W_file = open(Weights_file, "r")
-    data = W_file.read()
-    data_into_list = data.split("\n")
-    Weights = [list(map(int, i.split())) for i in data_into_list if i]  # Split each line into individual integers
+    with open(Weights_file, "r") as W_file:
+        data = W_file.read()
+        data_into_list = data.split()
+        Weights = [int(i) for i in data_into_list]
     Weights = np.array(Weights)
     Weights = np.reshape(Weights, (classes, clauses))
     print(Weights.shape)
@@ -65,6 +67,7 @@ def get_bits_required(Weights_file, clauses, classes):
 
     max_pos = abs(max_positive)
     max_neg = abs(max_negative) 
+
     bits = 0 
 
     if max_pos > max_neg: 
@@ -75,7 +78,7 @@ def get_bits_required(Weights_file, clauses, classes):
         bits = ceil(log(abs_w, 2)) + 1
 
     print("bits required: ",  bits)
-    return bits, Weights 
+    return bits, Weights
 
 def coalesced_tm_write_axis_wrapper(axis_wrapper_f, AXI_data_width, number_of_blocks, adder_stages, clauses, classes, features):
 	with open(axis_wrapper_f, "w") as f:
