@@ -36,7 +36,11 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
 
 # Non-root user with host-matchable UID/GID to avoid bind-mount permission
 # issues. Override at build time: docker build --build-arg UID=$(id -u) ...
-RUN groupadd -g "${GID}" dev \
+#
+# GID may already exist in the base image — common on macOS where the host
+# GID is a low system value (e.g. GID 20 = staff). Check with getent before
+# calling groupadd to avoid "GID already exists" (exit code 4).
+RUN ( getent group "${GID}" > /dev/null 2>&1 || groupadd -g "${GID}" dev ) \
  && useradd -m -u "${UID}" -g "${GID}" -s /bin/bash dev
 
 # Isolated venv so pip packages don't pollute the system Python.

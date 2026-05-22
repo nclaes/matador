@@ -2,7 +2,8 @@
 
 # Matador — Automated FPGA Accelerator Design for Tsetlin Machines
 
-Matador trains Coalesced Tsetlin Machines (CoTM) and translates them directly into FPGA accelerator systems. Learnt clause propositions are converted into hard-coded inference circuits, which are then streamed data from the host processor over AXI. The tool's configurable design and debug options allow rapid prototyping to hit target performance and resource requirements.
+Matador trains Tsetlin Machines and Coalesced Tsetlin Machines and Generates RTL. 
+This RTL can be deployed on FPGAs (specifically Xilinx SoCs) or simulated using verilator and GTKWave. 
 
 <img src="/images/promotional.png" width=900/>
 <img src="/images/flow.png" width=900/>
@@ -12,6 +13,7 @@ Matador trains Coalesced Tsetlin Machines (CoTM) and translates them directly in
 ## Getting Started
 
 ```bash
+make help         # see the make options supported 
 make build        # build the dev container (one-off)
 make shell        # drop into an interactive shell inside the container
 pytest            # run the test suite (inside the shell)
