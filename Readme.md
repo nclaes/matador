@@ -13,7 +13,8 @@ This RTL can be deployed on FPGAs (specifically Xilinx SoCs) or simulated using 
 ## Getting Started
 
 First make sure you have Docker installed and the docker daemon is running. 
-
+You need to make a directory outside of this repo for all your outputs. 
+This directory will be mounted in the Docker container. 
 
 ```bash
 make help         # see all available targets
@@ -36,7 +37,18 @@ make waves DIR=path/to/results
 
 See `make help` for the full list of targets.
 
+### Build and Verify Setup
+
+```bash 
+make build 
+make shell WORK_DIR=/path/to/your/data
+# Now you should be inside the container dev@matador:/workspace$
+which matador 
+matador version 
+matador getting_started --help 
+```
 ---
+
 ## Background Reading
 
 | | Paper |
