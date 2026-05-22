@@ -44,8 +44,10 @@ RUN ( getent group "${GID}" > /dev/null 2>&1 || groupadd -g "${GID}" dev ) \
  && useradd -m -u "${UID}" -g "${GID}" -s /bin/bash dev
 
 # Isolated venv so pip packages don't pollute the system Python.
+# Use numeric UID/GID — the group may not be named 'dev' if the GID already
+# existed in the base image and groupadd was skipped (see above).
 RUN python3 -m venv /opt/venv \
- && chown -R dev:dev /opt/venv
+ && chown -R "${UID}:${GID}" /opt/venv
 
 ENV PATH="/opt/venv/bin:$PATH"
 
