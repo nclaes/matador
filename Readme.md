@@ -9,6 +9,24 @@ Matador trains Coalesced Tsetlin Machines (CoTM) and translates them directly in
 
 ---
 
+## Getting Started
+
+```bash
+make build        # build the dev container (one-off)
+make shell        # drop into an interactive shell inside the container
+pytest            # run the test suite (inside the shell)
+```
+
+GTKWave runs on the **host**, not in the container:
+
+```bash
+make waves DIR=path/to/results
+```
+
+See `make help` for the full list of targets.
+
+---
+
 ## Background Reading
 
 | | Paper |

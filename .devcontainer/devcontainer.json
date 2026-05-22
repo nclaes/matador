@@ -1,0 +1,24 @@
+{
+  "name": "Matador Dev",
+  "dockerFile": "../docker/Dockerfile",
+  "context": "..",
+  "build": {
+    "args": {
+      "UID": "${localEnv:UID}",
+      "GID": "${localEnv:GID}"
+    }
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "mshr-h.veriloghdl",
+        "eamodio.gitlens"
+      ]
+    }
+  },
+  "forwardPorts": [],
+  "remoteUser": "dev"
+}

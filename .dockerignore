@@ -1,0 +1,10 @@
+.git/
+node_modules/
+.venv/
+*.vcd
+*.fst
+obj_dir/
+build/
+dist/
+.pytest_cache/
+*.egg-info/
