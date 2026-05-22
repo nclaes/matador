@@ -20,9 +20,7 @@ This directory will be mounted in the Docker container.
 make help         # see all available targets
 make build        # build the dev container (one-off)
 make shell        # open a shell → dev@matador:/workspace
-pytest            # run the test suite (inside the shell)
 ```
-
 To mount a local data or results directory as `/work` inside the container:
 
 ```bash
@@ -45,8 +43,10 @@ make shell WORK_DIR=/path/to/your/data
 # Now you should be inside the container dev@matador:/workspace$
 which matador 
 matador version 
-matador getting_started --help 
+matador
 ```
+From here you can use matador commands to train your model and generate the RTL. It is recommended you begin with `matador faena`
+
 ---
 
 ## Background Reading
@@ -59,70 +59,6 @@ matador getting_started --help
 | 4 | [Matador paper](https://arxiv.org/abs/2403.10538) |
 
 Training uses the [TMU library](https://github.com/cair/tmu) (pinned at `914e099`). Matador currently supports the Vanilla TM and Coalesced TM models.
-
----
-
-## Build
-
-### Requirements
-
-- Linux host (Ubuntu 20.04 recommended)
-- [Docker](https://docs.docker.com/engine/install/ubuntu/)
-- Xilinx Vivado 2022.2 or later installed on the host
-- X11 display server (required for the GUI)
-
-### Quick Start
-
-```bash
-git clone git@github.com:nclaes/matador.git
-cd matador
-./Build_Matador
-```
-
-`Build_Matador` builds the Docker image and launches the container. The repo directory is mounted at `/app` inside the container; Vivado is passed through from the host.
-
-### Configuration
-
-The script accepts two environment variable overrides:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `VIVADO_DIR` | `/tools/Xilinx` | Root of the Xilinx install on the host |
-| `XAUTH` | `$XAUTHORITY` | X11 authority file for GUI forwarding |
-
-```bash
-VIVADO_DIR=/opt/Xilinx ./Build_Matador
-```
-
-### Docker flags reference
-
-| Flag | Purpose |
-|---|---|
-| `--network=host` | Share host network stack |
-| `-e DISPLAY` | Forward host display variable |
-| `-v VIVADO_DIR` | Mount Vivado tools into the container |
-| `-v $(pwd):/app` | Mount the Matador repo |
-| `-v XAUTH` | Share X11 auth file for GUI |
-
-> **Note:** Matador is a research tool. Build instructions may need adapting for non-standard system configurations.
-
----
-
-## Usage
-
-Once inside the container, launch the GUI:
-
-```bash
-./Matador
-```
-
-The GUI walks through the full flow:
-
-1. **Setup** — set the output directory and Vivado path
-2. **Train Model** — configure and train a TM using the TMU backend
-3. **Generate RTL** — convert the trained model into synthesisable SystemVerilog
-4. **Synth + Impl** — run Vivado synthesis and implementation to produce a bitstream
-5. **Deploy** — deploy the bitstream to the target board (PYNQ-Z1)
 
 ---
 

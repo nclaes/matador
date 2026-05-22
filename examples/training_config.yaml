@@ -39,4 +39,4 @@ train_data: /work/data/train.txt
 test_data: /work/data/test.txt
 
 # Directory where trained TA state files and logs will be written
-output_dir: /work/output
+output_dir: /work/TMIR

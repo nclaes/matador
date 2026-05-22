@@ -69,6 +69,13 @@ ucli.key
 *~
 
 # =============================================================================
+# tmu — compiled C extension (platform and Python-version specific)
+# =============================================================================
+tmu/tmulib*.so
+tmu/tmulib*.o
+tmu/tmulib*.c
+
+# =============================================================================
 # Matador runtime-generated configs (contain user-specific paths)
 # =============================================================================
 accel_config.json

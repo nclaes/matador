@@ -19,6 +19,7 @@
       ]
     }
   },
+  "postCreateCommand": "cd /workspace && python tmu/lib/tmulib_extension_build.py",
   "forwardPorts": [],
   "remoteUser": "dev"
 }

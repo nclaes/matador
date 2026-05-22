@@ -44,13 +44,14 @@ DOCKER_EXEC := docker run --rm \
 # -----------------------------------------------------------------------------
 
 .DEFAULT_GOAL := help
-.PHONY: help build shell test lint sim waves clean ci-local
+.PHONY: help build shell tmu-build test lint sim waves clean ci-local
 
 help:
 	@printf '\n  \033[1mMatador — available targets\033[0m\n\n'
 	@printf '  %-30s %s\n' 'make build'                   'Build the dev Docker image'
 	@printf '  %-30s %s\n' 'make shell'                   'Interactive shell (dev@matador:/workspace)'
 	@printf '  %-30s %s\n' 'make shell WORK_DIR=<path>'   'Shell with <path> mounted as /work'
+	@printf '  %-30s %s\n' 'make tmu-build'               'Compile the tmu C extension (run once after build)'
 	@printf '  %-30s %s\n' 'make test'                    'Run pytest in the container'
 	@printf '  %-30s %s\n' 'make lint'                    'ruff check/format + verilator --lint-only'
 	@printf '  %-30s %s\n' 'make sim TARGET=<name>'       'Run a named simulation'
@@ -69,6 +70,12 @@ build:
 
 shell:
 	$(DOCKER_RUN) /bin/bash
+
+# Compile the tmu C extension inside the container.
+# Must be run once after `make build` — output goes to tmu/tmulib.cpython-*.so
+# The .so is gitignored (platform/Python-version specific).
+tmu-build:
+	$(DOCKER_EXEC) bash -c "cd /workspace && python tmu/lib/tmulib_extension_build.py"
 
 test:
 	$(DOCKER_EXEC) pytest

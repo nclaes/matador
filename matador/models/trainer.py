@@ -22,9 +22,9 @@ def _import_tmu():
         return TMClassifier, BenchmarkTimer
     except ImportError as exc:
         raise SystemExit(
-            "The 'tmu' package is required for training but is not installed.\n"
-            "Inside the container run:  pip install tmu\n"
-            "Or rebuild with the ml extra:  pip install 'matador[ml]'"
+            "The tmu C extension is not built for this Python version.\n"
+            "Compile it once with:  make tmu-build\n"
+            "Or inside the container:  cd /workspace && python tmu/lib/tmulib_extension_build.py"
         ) from exc
 
 

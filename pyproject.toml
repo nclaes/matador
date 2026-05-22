@@ -12,6 +12,8 @@ dependencies = [
     "pydantic>=2",
     "click",
     "numpy",
+    "cffi>=1.0",
+    "scipy",
 ]
 
 [project.optional-dependencies]
@@ -23,15 +25,10 @@ dev = [
     "pre-commit",
     "mypy",
 ]
-# tmu ships pre-built wheels for Linux x86_64 only.
-# Install separately on supported platforms: pip install "matador[ml]"
-ml = [
-    "tmu",
-]
 
 [project.scripts]
 matador = "matador.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["matador*"]
+include = ["matador*", "tmu*"]
