@@ -23,10 +23,10 @@ dev = [
     "pre-commit",
     "mypy",
 ]
-# pyTsetlinMachine ships pre-built wheels for Linux x86_64 only.
+# tmu ships pre-built wheels for Linux x86_64 only.
 # Install separately on supported platforms: pip install "matador[ml]"
 ml = [
-    "pyTsetlinMachine",
+    "tmu",
 ]
 
 [project.scripts]

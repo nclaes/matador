@@ -1,0 +1,42 @@
+# Matador Training Configuration
+#
+# Place this file in your work directory (mounted as /work inside the container).
+# Run: matador train --config /work/training_config.yaml
+#
+# DATA REQUIREMENT: All feature values must already be Boolean (0 or 1).
+# Files must be space-separated with the class label as the final column.
+# Example row (4 features, class 2): 1 0 1 1 2
+
+# Tsetlin Machine type: "vanilla" or "coalesced"
+tm_type: vanilla
+
+# Number of clauses (must be even; more clauses = higher capacity, slower training)
+clauses: 400
+
+# Number of classes in the dataset (e.g. 10 for digit recognition)
+classes: 10
+
+# Number of Boolean input features per sample
+features: 512
+
+# Specificity parameter — controls how broadly clauses generalise (float, typically 2.0–10.0)
+s: 5.0
+
+# Voting threshold — controls confidence required before a clause counts (integer)
+T: 200
+
+# Number of training epochs
+epochs: 50
+
+# Maximum number of literals allowed per clause (set to features*2 to disable)
+max_included_literals: 32
+
+# Random seed for reproducibility
+seed: 42
+
+# Paths to training and test data files (absolute or relative to this config file)
+train_data: /work/data/train.txt
+test_data: /work/data/test.txt
+
+# Directory where trained TA state files and logs will be written
+output_dir: /work/output
