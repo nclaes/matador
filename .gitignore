@@ -1,0 +1,22 @@
+# Xilinx tool build artifacts
+.Xil/
+*.bda
+*.hwdef
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Compiled binaries
+*.so
+*.o
+*.gch
+
+# Editor artifacts
+*.swp
+*.swo
+*~
+
+# Matador runtime-generated config (written by the tool on each run, contains user paths)
+accel_config.json

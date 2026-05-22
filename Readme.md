@@ -17,16 +17,52 @@ The core papers for learning about Matador are listed here:
 Matador's training engine comes from the TMU repo: https://github.com/cair/tmu [```914e099```]. 
 While the repo incorporates all the Tsetlin Machine models, Matador currently supports Vanilla (Tsetlin Machine) and Coalesced Tsetlin Machine. 
 
-## Build Matador 
-### Requirements 
+## Build Matador
 
-To configure the tool the following requirements are required: 
+### Requirements
 
-1) Linux Distro to build the Matador container - ideally Ubuntu 20.0.4
-2) Vivado 2022.2 (or later)
+- Linux host (Ubuntu 20.04 recommended)
+- [Docker](https://docs.docker.com/engine/install/ubuntu/)
+- Xilinx Vivado 2022.2 or later, installed on the host
+- X11 display server (required for the GUI)
 
-### Build Instructions 
-View ```Build_Instructions.md```. 
+### Quick Start
+
+Clone the repo and run the build script from the repo root:
+
+```bash
+git clone git@github.com:nclaes/matador.git
+cd matador
+./Build_Matador
+```
+
+This builds the Docker image and launches the container. The repo directory is automatically mounted at `/app` inside the container.
+
+### Custom Vivado Path
+
+By default the script expects Vivado to be under `/tools/Xilinx`. If your installation is elsewhere, set `VIVADO_DIR` before running:
+
+```bash
+VIVADO_DIR=/opt/Xilinx ./Build_Matador
+```
+
+### Custom X11 Auth
+
+If your X authority file is not at `$XAUTHORITY`, set it explicitly:
+
+```bash
+XAUTH=/run/user/1000/gdm/Xauthority ./Build_Matador
+```
+
+### Running Matador inside the container
+
+Once inside the container, launch the GUI with:
+
+```bash
+./Matador
+```
+
+For full build details see `Build_Instructions.md`.
 
 ## Contact
 
