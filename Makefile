@@ -19,16 +19,25 @@ IMAGE   := matador:dev
 UID     := $(shell id -u)
 GID     := $(shell id -g)
 
+# Optional: mount a host directory as /work inside the container.
+# Set before any target, e.g.:  make shell WORK_DIR=/path/to/mydata
+WORK_DIR    ?=
+WORK_MOUNT   = $(if $(WORK_DIR),-v "$(WORK_DIR):/work",)
+
 # Interactive container (tty + stdin) — used for `make shell`
 DOCKER_RUN := docker run --rm -it \
+                --hostname matador \
                 --network=host \
-                -v $(PWD):/workspace \
+                -v "$(PWD):/workspace" \
+                $(WORK_MOUNT) \
                 -u $(UID):$(GID) \
                 $(IMAGE)
 
 # Non-interactive one-shot container — used for test/lint/ci-local
 DOCKER_EXEC := docker run --rm \
-                 -v $(PWD):/workspace \
+                 --hostname matador \
+                 -v "$(PWD):/workspace" \
+                 $(WORK_MOUNT) \
                  -u $(UID):$(GID) \
                  $(IMAGE)
 
@@ -39,14 +48,15 @@ DOCKER_EXEC := docker run --rm \
 
 help:
 	@printf '\n  \033[1mMatador — available targets\033[0m\n\n'
-	@printf '  %-22s %s\n' 'make build'            'Build the dev Docker image'
-	@printf '  %-22s %s\n' 'make shell'            'Interactive shell in the container'
-	@printf '  %-22s %s\n' 'make test'             'Run pytest in the container'
-	@printf '  %-22s %s\n' 'make lint'             'ruff check/format + verilator --lint-only'
-	@printf '  %-22s %s\n' 'make sim TARGET=<name>''Run a named simulation'
-	@printf '  %-22s %s\n' 'make waves DIR=<path>' 'Open GTKWave on the HOST'
-	@printf '  %-22s %s\n' 'make clean'            'Remove obj_dir, *.vcd, *.fst, __pycache__'
-	@printf '  %-22s %s\n' 'make ci-local'         'Full CI suite in the container'
+	@printf '  %-30s %s\n' 'make build'                   'Build the dev Docker image'
+	@printf '  %-30s %s\n' 'make shell'                   'Interactive shell (dev@matador:/workspace)'
+	@printf '  %-30s %s\n' 'make shell WORK_DIR=<path>'   'Shell with <path> mounted as /work'
+	@printf '  %-30s %s\n' 'make test'                    'Run pytest in the container'
+	@printf '  %-30s %s\n' 'make lint'                    'ruff check/format + verilator --lint-only'
+	@printf '  %-30s %s\n' 'make sim TARGET=<name>'       'Run a named simulation'
+	@printf '  %-30s %s\n' 'make waves DIR=<path>'        'Open GTKWave on the HOST'
+	@printf '  %-30s %s\n' 'make clean'                   'Remove obj_dir, *.vcd, *.fst, __pycache__'
+	@printf '  %-30s %s\n' 'make ci-local'                'Full CI suite in the container'
 	@printf '\n'
 
 build:

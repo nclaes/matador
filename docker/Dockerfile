@@ -53,6 +53,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /workspace
 
+# Mount point for the user's work directory.
+# Populated at runtime: make shell WORK_DIR=/path/to/mydata
+RUN mkdir /work
+
 # ---------------------------------------------------------------------------
 # Python package installation — cache-friendly layer ordering.
 # pyproject.toml is copied first so pip only re-runs when dependencies

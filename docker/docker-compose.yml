@@ -7,8 +7,13 @@ services:
         UID: ${UID:-1000}
         GID: ${GID:-1000}
     image: matador:dev
+    hostname: matador
     volumes:
       - ..:/workspace
+      # Optional: set WORK_DIR in your shell before running docker compose
+      # to mount a host directory as /work inside the container.
+      # e.g.  WORK_DIR=/path/to/mydata docker compose up
+      - ${WORK_DIR:-/tmp}:/work
     network_mode: host      # simplifies Vivado licence server connectivity
     tty: true
     stdin_open: true

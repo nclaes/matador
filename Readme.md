@@ -2,7 +2,7 @@
 
 # Matador — Automated FPGA Accelerator Design for Tsetlin Machines
 
-Matador trains Tsetlin Machines and Coalesced Tsetlin Machines and Generates RTL. 
+Matador trains Tsetlin Machines and Coalesced Tsetlin Machines and generates RTL. 
 This RTL can be deployed on FPGAs (specifically Xilinx SoCs) or simulated using verilator and GTKWave. 
 
 <img src="/images/promotional.png" width=900/>
@@ -12,11 +12,20 @@ This RTL can be deployed on FPGAs (specifically Xilinx SoCs) or simulated using 
 
 ## Getting Started
 
+First make sure you have Docker installed and the docker daemon is running. 
+
+
 ```bash
-make help         # see the make options supported 
+make help         # see all available targets
 make build        # build the dev container (one-off)
-make shell        # drop into an interactive shell inside the container
+make shell        # open a shell → dev@matador:/workspace
 pytest            # run the test suite (inside the shell)
+```
+
+To mount a local data or results directory as `/work` inside the container:
+
+```bash
+make shell WORK_DIR=/path/to/your/data
 ```
 
 GTKWave runs on the **host**, not in the container:
@@ -28,7 +37,6 @@ make waves DIR=path/to/results
 See `make help` for the full list of targets.
 
 ---
-
 ## Background Reading
 
 | | Paper |
