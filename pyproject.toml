@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "matador"
+version = "0.2.0-dev0"
+requires-python = ">=3.10"
+dependencies = [
+    "jinja2",
+    "pyyaml",
+    "pydantic>=2",
+    "click",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "black",
+    "pre-commit",
+    "mypy",
+]
+# pyTsetlinMachine ships pre-built wheels for Linux x86_64 only.
+# Install separately on supported platforms: pip install "matador[ml]"
+ml = [
+    "pyTsetlinMachine",
+]
+
+[project.scripts]
+matador = "matador.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["matador*"]

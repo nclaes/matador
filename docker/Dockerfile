@@ -59,17 +59,15 @@ RUN mkdir /work
 
 # ---------------------------------------------------------------------------
 # Python package installation — cache-friendly layer ordering.
-# pyproject.toml is copied first so pip only re-runs when dependencies
-# change, not on every source edit.
 #
-# Uncomment both lines once Block 1.3 creates pyproject.toml:
-#
-#   COPY pyproject.toml ./
-#   RUN pip install --no-cache-dir -e ".[dev]"
-#
-# Will succeed after Block 1.3 adds pyproject.toml
+# 1. Copy only pyproject.toml first. This layer is invalidated (and pip
+#    re-runs) only when dependencies change, not on every source edit.
+# 2. Stub matador/__init__.py so setuptools can resolve the editable install
+#    at build time. The bind mount at runtime shadows this with real source.
 # ---------------------------------------------------------------------------
-RUN echo "[docker] pyproject.toml not yet present — pip install pending Block 1.3"
+COPY pyproject.toml ./
+RUN mkdir -p matador && touch matador/__init__.py
+RUN pip install --no-cache-dir -e ".[dev]"
 
 USER dev
 
