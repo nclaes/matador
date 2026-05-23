@@ -166,7 +166,7 @@ class ImplClauseBankCUDA(BaseClauseBank):
             dtype=np.uint32,
             order="c"
         )
-        self.clause_bank[:, :, 0:self.number_of_state_bits_ta - 1] = np.uint32(~0)
+        self.clause_bank[:, :, 0:self.number_of_state_bits_ta - 1] = np.iinfo(np.uint32).max
         self.clause_bank[:, :, self.number_of_state_bits_ta - 1] = 0
         self.clause_bank = self.clause_bank.reshape(
             (self.number_of_clauses * self.number_of_ta_chunks * self.number_of_state_bits_ta),
