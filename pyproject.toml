@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2",
     "click",
     "numpy",
+    "setuptools",
     "cffi>=1.0",
     "scipy",
 ]

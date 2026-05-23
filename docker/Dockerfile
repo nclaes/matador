@@ -67,6 +67,8 @@ RUN mkdir /work
 # ---------------------------------------------------------------------------
 COPY pyproject.toml ./
 RUN mkdir -p matador && touch matador/__init__.py
+# setuptools is required by cffi on Python 3.12+ (no longer bundled in stdlib)
+RUN pip install --no-cache-dir setuptools
 RUN pip install --no-cache-dir -e ".[dev]"
 
 USER dev
