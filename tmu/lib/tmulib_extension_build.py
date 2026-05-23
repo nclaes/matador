@@ -29,7 +29,14 @@ source_dir = current_dir.joinpath("src")
 header_dir = current_dir.joinpath("include")
 
 HEADERS = ["ClauseBank.h", "Tools.h", "WeightBank.h", "ClauseBankSparse.h"]
-SOURCES = ["ClauseBank.c", "Tools.c", "WeightBank.c", "ClauseBankSparse.c"]
+SOURCES = [
+    "random/pcg32_fast.c",
+    "random/xorshift128.c",
+    "ClauseBank.c",
+    "Tools.c",
+    "WeightBank.c",
+    "ClauseBankSparse.c",
+]
 
 header_content = '\n'.join([header_dir.joinpath(x).open("r").read() for x in HEADERS])
 source_content = '\n'.join([source_dir.joinpath(x).open("r").read() for x in SOURCES])
