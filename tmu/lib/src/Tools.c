@@ -29,9 +29,11 @@ https://arxiv.org/abs/1905.09688
 #include <string.h>
 #include <stdlib.h>
 
-unsigned int compareints(const void * a, const void * b)
+int compareints(const void * a, const void * b)
 {
-  return(*(unsigned int*)a - *(unsigned int*)b);
+  unsigned int ua = *(const unsigned int*)a;
+  unsigned int ub = *(const unsigned int*)b;
+  return (ua > ub) - (ua < ub);
 }
 
 void tmu_produce_autoencoder_example(

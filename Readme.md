@@ -41,6 +41,7 @@ See `make help` for the full list of targets.
 make build 
 make shell WORK_DIR=/path/to/your/data
 # Now you should be inside the container dev@matador:/workspace$
+make tmu-build
 which matador 
 matador version 
 matador
