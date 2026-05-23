@@ -50,6 +50,7 @@ RUN python3 -m venv /opt/venv \
  && chown -R "${UID}:${GID}" /opt/venv
 
 ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH="/workspace"
 
 WORKDIR /workspace
 
@@ -66,7 +67,7 @@ RUN mkdir /work
 #    at build time. The bind mount at runtime shadows this with real source.
 # ---------------------------------------------------------------------------
 COPY pyproject.toml ./
-RUN mkdir -p matador && touch matador/__init__.py
+RUN mkdir -p matador tmu && touch matador/__init__.py tmu/__init__.py
 # setuptools is required by cffi on Python 3.12+ (no longer bundled in stdlib)
 RUN pip install --no-cache-dir setuptools
 RUN pip install --no-cache-dir -e ".[dev]"

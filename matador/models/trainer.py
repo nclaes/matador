@@ -15,16 +15,19 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _import_tmu():
+    import traceback
+
     try:
         from tmu.models.classification.vanilla_classifier import TMClassifier
         from tmu.tools import BenchmarkTimer
 
         return TMClassifier, BenchmarkTimer
-    except ImportError as exc:
+    except Exception as exc:
+        traceback.print_exc()
         raise SystemExit(
-            "The tmu C extension is not built for this Python version.\n"
-            "Compile it once with:  make tmu-build\n"
-            "Or inside the container:  cd /workspace && python tmu/lib/tmulib_extension_build.py"
+            f"\nImport failed: {exc}\n\n"
+            "If the tmu C extension is missing, compile it:\n"
+            "  cd /workspace && python3 tmu/lib/tmulib_extension_build.py"
         ) from exc
 
 
