@@ -75,7 +75,8 @@ shell:
 # Must be run once after `make build` — output goes to tmu/tmulib.cpython-*.so
 # The .so is gitignored (platform/Python-version specific).
 tmu-build:
-	$(DOCKER_EXEC) bash -c "cd /workspace && python tmu/lib/tmulib_extension_build.py"
+	rm /workspace/tmu/tmulib.cpython-312-aarch64-linux-gnu.so
+	bash -c "python3 tmu/lib/tmulib_extension_build.py"
 
 test:
 	$(DOCKER_EXEC) pytest

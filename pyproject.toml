@@ -15,9 +15,13 @@ dependencies = [
     "setuptools",
     "cffi>=1.0",
     "scipy",
+    "ruamel.yaml",
 ]
 
 [project.optional-dependencies]
+ml = [
+    "tmu",
+]
 dev = [
     "pytest",
     "pytest-cov",

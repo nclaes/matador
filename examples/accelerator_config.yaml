@@ -1,0 +1,42 @@
+# accelerator_config.yaml — Matador RTL generation configuration
+#
+# Usage:
+#   matador generate --config examples/accelerator_config.yaml
+#
+# Prerequisites:
+#   A trained TMIR model at model_path (produced by `matador train`).
+
+# Path to the trained TMIR model file (.yaml or .npz).
+# The model produced by `matador train` is written to:
+#   <output_dir>/TMIR/TM_TMIR_Clauses_<N>_...yaml
+model_path: /work/TMIR/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+
+# Root output directory.  RTL is written to <output_dir>/RTL/.
+# Subdirectories created automatically:
+#   RTL/src/   — Verilog sources  (axis_fifo, clause_eval, score_acc, argmax, tm_accelerator)
+#   RTL/tb/    — Testbenches      (tb_axis_fifo, tb_clause_eval, tb_score_acc, tb_argmax, tb_system)
+#   RTL/sim/   — Simulation scripts (run_iverilog.sh, lint_verilator.sh, run_xsim.sh)
+output_dir: /work
+
+# AXI-Stream TDATA width in bits.  Features are packed LSB-first.
+# Allowed: 32 or 64.
+axis_data_width: 32
+
+# Input FIFO depth in beats (must be a power of 2, minimum 4).
+# Increase if the upstream producer can burst more than fifo_depth beats
+# before the accelerator asserts tready again.
+fifo_depth: 16
+
+# Partial feature-clause matrix tile dimensions.
+#
+# feat_slice  — number of features (and literals) evaluated per tile column.
+#   The FSM outer loop steps through ceil(n_features / feat_slice) feature slices.
+#   Each tile row contains 2*feat_slice include bits per clause.
+#   Powers of 2 map cleanly to BRAM port widths.
+feat_slice: 8
+
+# clause_slice — number of clauses evaluated in parallel per tile cycle.
+#   The FSM inner loop steps through ceil(n_clauses_total / clause_slice) clause slices.
+#   clause_slice clause_eval instances are instantiated in the generate block.
+#   Powers of 2 recommended; must be >= 1.
+clause_slice: 8

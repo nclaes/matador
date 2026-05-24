@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from matador.config.schema import TMType, TrainingConfig
+from matador.config.schema import TMType, TrainingConfig, ValidationConfig
 
 _VALID = dict(
     tm_type="vanilla",
@@ -62,3 +62,54 @@ def test_max_literals_exceeds_features_rejected():
 def test_default_seed():
     cfg = TrainingConfig.model_validate({k: v for k, v in _VALID.items() if k != "seed"})
     assert cfg.seed == 42
+
+
+# ---------------------------------------------------------------------------
+# ValidationConfig
+# ---------------------------------------------------------------------------
+
+def test_validation_config_yaml(tmp_path):
+    model = tmp_path / "model.yaml"
+    model.write_text("tmir_version: '0.2'\n")
+    cfg = ValidationConfig.model_validate({"model_path": str(model)})
+    assert cfg.model_path == model
+    assert cfg.test_data is None
+
+
+def test_validation_config_npz(tmp_path):
+    model = tmp_path / "model.npz"
+    model.write_bytes(b"")
+    cfg = ValidationConfig.model_validate({"model_path": str(model)})
+    assert cfg.model_path.suffix == ".npz"
+
+
+def test_validation_config_missing_model_rejected(tmp_path):
+    with pytest.raises(ValidationError, match="does not exist"):
+        ValidationConfig.model_validate({"model_path": str(tmp_path / "missing.yaml")})
+
+
+def test_validation_config_bad_extension_rejected(tmp_path):
+    model = tmp_path / "model.txt"
+    model.write_text("")
+    with pytest.raises(ValidationError, match=r"\.yaml"):
+        ValidationConfig.model_validate({"model_path": str(model)})
+
+
+def test_validation_config_missing_test_data_rejected(tmp_path):
+    model = tmp_path / "model.yaml"
+    model.write_text("")
+    with pytest.raises(ValidationError, match="does not exist"):
+        ValidationConfig.model_validate(
+            {"model_path": str(model), "test_data": str(tmp_path / "missing.txt")}
+        )
+
+
+def test_validation_config_with_test_data(tmp_path):
+    model = tmp_path / "model.yaml"
+    model.write_text("")
+    data = tmp_path / "test.txt"
+    data.write_text("0 1 0\n1 0 1\n")
+    cfg = ValidationConfig.model_validate(
+        {"model_path": str(model), "test_data": str(data)}
+    )
+    assert cfg.test_data == data

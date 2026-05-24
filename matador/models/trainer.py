@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from matador.ir.tm_ir import EvalVector, Verification
+from matador.models.tmu_adapter import from_tmu, import_tmu_classifier
+
 if TYPE_CHECKING:
     from matador.config.schema import TrainingConfig
 
@@ -15,20 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _import_tmu():
-    import traceback
-
-    try:
-        from tmu.models.classification.vanilla_classifier import TMClassifier
-        from tmu.tools import BenchmarkTimer
-
-        return TMClassifier, BenchmarkTimer
-    except Exception as exc:
-        traceback.print_exc()
-        raise SystemExit(
-            f"\nImport failed: {exc}\n\n"
-            "If the tmu C extension is missing, compile it:\n"
-            "  cd /workspace && python3 tmu/lib/tmulib_extension_build.py"
-        ) from exc
+    return import_tmu_classifier()
 
 
 def load_data(config: TrainingConfig) -> dict[str, np.ndarray]:
@@ -81,33 +71,81 @@ def train_model(config: TrainingConfig, data: dict[str, np.ndarray]):
     return tm
 
 
-def export_ta_states(tm, config: TrainingConfig) -> Path:
-    """Write TA state file to output_dir; return the file path."""
-    config.output_dir.mkdir(parents=True, exist_ok=True)
+def _embed_test_vectors(tmir, config: "TrainingConfig", n: int = 10) -> None:
+    """Sample the first *n* rows of the test set and embed them into tmir.verification."""
+    from matador.inference.reference import predict
+
+    raw = np.genfromtxt(config.test_data, delimiter=" ", dtype=np.uint32)
+    n = min(n, len(raw))
+    X = raw[:n, :-1].astype(np.uint8)
+    preds, scores = predict(tmir, X)
+    tmir.verification = Verification(
+        test_vectors=[
+            EvalVector(
+                input=list(int(v) for v in X[i]),
+                expected_class=int(preds[i]),
+                expected_scores=[int(scores[i, j]) for j in range(scores.shape[1])],
+            )
+            for i in range(n)
+        ]
+    )
+    _LOGGER.debug("Embedded %d test vectors into TMIR", n)
+
+
+def export_tmir(tm, config: TrainingConfig) -> tuple[Path, Path, Path]:
+    """Convert a trained TMU model to TMIR, validate, and write to disk.
+
+    Files are written to ``<output_dir>/TMIR/``:
+      - ``<stem>.yaml``              — human-readable model
+      - ``<stem>.npz``               — compact binary, preferred for tooling
+      - ``validation_config.yaml``   — ready-to-use config for ``matador validate``
+
+    Returns:
+        (yaml_path, npz_path, validation_config_path)
+
+    Raises:
+        ValueError: if the resulting TMIR fails self-validation.
+    """
+    import yaml as _yaml
+
+    tmir_dir = config.output_dir / "TMIR"
+    tmir_dir.mkdir(parents=True, exist_ok=True)
 
     s_tag = str(int(config.s)) if config.s == int(config.s) else str(config.s)
-    filename = (
-        f"TM_TA_states"
+    stem = (
+        f"TM_TMIR"
         f"_Clauses_{config.clauses}"
         f"_s_value_{s_tag}"
         f"_T_value_{config.T}"
         f"_epochs_{config.epochs}"
         f"_max_literals_{config.max_included_literals}"
     )
-    out_path = config.output_dir / filename
 
-    clauses_half = config.clauses // 2
+    tmir = from_tmu(tm)
 
-    with out_path.open("w") as fh:
-        for cls in range(config.classes):
-            for j in range(clauses_half):
-                for polarity in (0, 1):
-                    tas = [
-                        int(tm.get_ta_action(j, k, the_class=cls, polarity=polarity))
-                        for k in range(config.features * 2)
-                    ]
-                    for feat in range(config.features):
-                        fh.write(f"{tas[feat]} {tas[config.features + feat]} ")
+    # Patch provenance with the actual epoch count from the training run.
+    tmir.provenance.epochs = config.epochs
 
-    _LOGGER.info("TA states written to %s", out_path)
-    return out_path
+    # Embed the first N test samples as ground-truth eval vectors so the TMIR
+    # is self-validating without needing the test dataset on disk.
+    _embed_test_vectors(tmir, config, n=10)
+
+    tmir.validate_self()
+    _LOGGER.debug("TMIR self-validation passed")
+
+    yaml_path = tmir_dir / f"{stem}.yaml"
+    npz_path = tmir_dir / f"{stem}.npz"
+
+    tmir.to_yaml(yaml_path)
+    tmir.to_npz(npz_path)
+
+    # Write a validation config that points straight at this model and the
+    # test dataset used during training, so the user can immediately run:
+    #   matador validate --config <validation_config_path>
+    val_cfg = {"model_path": str(yaml_path), "test_data": str(config.test_data)}
+    val_cfg_path = tmir_dir / "validation_config.yaml"
+    val_cfg_path.write_text(_yaml.dump(val_cfg, default_flow_style=False, sort_keys=False))
+
+    _LOGGER.info("TMIR written to %s  (+.npz)", yaml_path)
+    _LOGGER.info("Validation config written to %s", val_cfg_path)
+    return yaml_path, npz_path, val_cfg_path
