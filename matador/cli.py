@@ -28,34 +28,83 @@ def main(ctx: click.Context, verbose: bool) -> None:
 
 @main.command("faena")
 def faena() -> None:
-    """Begin the work: train a model or generate RTL from an existing one."""
-    click.echo("")
-    click.echo("  Matador — Tsetlin Machine RTL Accelerator Generator")
-    click.echo("  " + "─" * 50)
-    click.echo("")
+    """Interactive guide: toolchain overview + next-step wizard."""
+    _print_toolchain()
 
     has_model = click.confirm(
-        "  Do you already have a trained Tsetlin Machine model (TMIR file)?",
+        "\n  Do you already have a trained Tsetlin Machine model (TMIR file)?",
         default=False,
     )
 
     if has_model:
         click.echo("")
-        click.echo("  RTL generation from an existing TMIR model is not yet implemented.")
-        click.echo("  Run 'matador generate --help' when available.")
+        click.echo("  Skip straight to RTL generation:")
+        click.echo("    Copy and edit:  cp examples/generate_config.yaml /work/generate_config.yaml")
+        click.echo("    Then run:       matador generate --config /work/generate_config.yaml")
         return
 
     click.echo("")
-    click.echo("  Training flow:")
-    click.echo("    1. Create a training_config.yaml in your work directory (/work).")
-    click.echo("       See examples/training_config.yaml for a template.")
-    click.echo("    2. Run:  matador train --config /work/training_config.yaml")
-    click.echo("       The model is saved as TMIR (.yaml + .npz) under <output_dir>/TMIR/.")
-    click.echo("    3. After training, run:  matador generate  (coming soon)")
+    click.echo("  Step 1 — edit the training config:")
+    click.echo("    cp examples/training_config.yaml /work/training_config.yaml")
+    click.echo("")
+    click.echo("  Step 2 — train:")
+    click.echo("    matador train --config /work/training_config.yaml")
+    click.echo("    Outputs: /work/TMIR/<model>.npz  +  /work/TMIR/validation_config.yaml")
+    click.echo("             /work/TMIR/rom_inference.py  (standalone provenance script)")
     click.echo("")
 
     if click.confirm("  Start training now using /work/training_config.yaml?", default=True):
         _run_training(_DEFAULT_CONFIG)
+
+
+def _print_toolchain() -> None:
+    """Print the Matador toolchain stages to stdout."""
+    # Right column is 40 chars wide
+    C = 40
+    stages = [
+        ("train",
+         "Train a TM model on Boolean feature data",
+         "training_config.yaml → TMIR (.npz/.yaml)"),
+        ("validate",
+         "Check model accuracy on the held-out test",
+         "TMIR + test data → accuracy report"),
+        ("generate",
+         "Synthesise Verilog RTL for all backends",
+         "TMIR + generate_config.yaml → RTL/"),
+        ("emulate",
+         "Cycle-accurate software emulator",
+         "TMIR + config → InferenceTrace per sample"),
+        ("simulate",
+         "Compile and run RTL testbenches",
+         "generated RTL → PASS/FAIL per testbench"),
+        ("provenance",
+         "ROM-based inference report",
+         "TMIR + test data → JSON (fingerprint+acc)"),
+    ]
+
+    # Column widths (content only, excluding │ and padding):
+    #   left  = 22  →  cell = 2+22+2 = 26 chars between │
+    #   right = 42  →  cell = 2+42+2 = 46 chars between │
+    # Total line = 2(indent) + 1(│) + 26 + 1(│) + 46 + 1(│) = 77 chars
+    LW, RW = 22, 42
+    top  = "  ┌" + "─"*(LW+4) + "┬" + "─"*(RW+4) + "┐"
+    mid  = "  ├" + "─"*(LW+4) + "┼" + "─"*(RW+4) + "┤"
+    sep  = "  ├" + "─"*(LW+4) + "┼" + "─"*(RW+4) + "┤"
+    bot  = "  └" + "─"*(LW+4) + "┴" + "─"*(RW+4) + "┘"
+    blk  = f"  │  {'':^{LW}}  │  {'':^{RW}}  │"
+    title = "The Matador Toolchain"
+    hdr  = f"  │  {title:^{LW+RW+6}}  │"
+
+    click.echo("")
+    click.echo(top)
+    click.echo(hdr)
+    click.echo("  ├" + "─"*(LW+4) + "┬" + "─"*(RW+4) + "┤")
+    for cmd, summary, detail in stages:
+        c1 = f"matador {cmd}"
+        click.echo(f"  │  {c1:<{LW}}  │  {summary[:RW]:<{RW}}  │")
+        click.echo(f"  │  {'':^{LW}}  │  {detail[:RW]:<{RW}}  │")
+        click.echo(blk)
+    click.echo(bot)
 
 
 
@@ -296,8 +345,25 @@ def generate(backend_name: str | None, config_path: Path) -> None:
     except Exception as exc:
         raise click.ClickException(f"Failed to read config: {exc}") from exc
 
-    # Determine which backends to run
-    targets = [backend_name] if backend_name else list_backends()
+    # Determine which backends to run.
+    # When --backend is not specified, only generate backends whose
+    # discriminating fields are present in the config.  This lets users
+    # have a tiled-only config without accidentally triggering the
+    # hardwired backend (and vice versa).
+    _DISCRIMINATORS = {
+        "tiled":     {"feat_slice", "clause_slice"},
+        "hardwired": {"pipeline_stages"},
+    }
+
+    if backend_name:
+        targets = [backend_name]
+    else:
+        all_names = list_backends()
+        raw_keys  = set(raw.keys()) if isinstance(raw, dict) else set()
+        configured = [n for n in all_names
+                      if _DISCRIMINATORS.get(n, set()) & raw_keys]
+        # Fallback: if no discriminating fields found, generate everything
+        targets = configured if configured else all_names
 
     # Validate config against the first target that accepts it to load the model
     # (model_path and output_dir are common to all backends)
