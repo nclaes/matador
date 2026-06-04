@@ -1,0 +1,49 @@
+# generate_config.yaml — Unified RTL generation configuration
+#
+# Usage:
+#   matador generate --config examples/generate_config.yaml
+#
+# This single config drives ALL registered backends.  Each backend picks
+# the fields it needs and ignores the rest.
+#
+#   matador generate                            # generates tiled + hardwired
+#   matador generate --backend tiled            # generates tiled only
+#   matador generate --backend hardwired        # generates hardwired only
+#
+# Output is written to:
+#   <output_dir>/tiled/RTL/       — tiled backend
+#   <output_dir>/hardwired/RTL/   — hardwired backend
+#
+# Prerequisites: a trained TMIR model at model_path (from `matador train`).
+
+# Path to the trained TMIR model file (.yaml or .npz).
+model_path: /work/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+
+# Root output directory.  Backend subdirectories are created automatically.
+output_dir: /work
+
+# AXI-Stream TDATA width in bits (shared by all backends).
+# Allowed: 32 or 64.
+axis_data_width: 32
+
+# Input FIFO depth in beats (shared by all backends).
+# Must be a power of 2, minimum 4.
+fifo_depth: 16
+
+# ── Tiled backend knobs ───────────────────────────────────────────────────────
+# feat_slice  — features (and literals) evaluated per tile column.
+#   Outer FSM loop steps through ceil(n_features / feat_slice) feature slices.
+#   Powers of 2 recommended; 4–16 is a good starting range.
+feat_slice: 8
+
+# clause_slice — clauses evaluated in parallel per tile cycle.
+#   Inner FSM loop steps through ceil(n_clauses_total / clause_slice) slices.
+#   Larger values cut inference latency at the cost of more parallel LUTs.
+clause_slice: 8
+
+# ── Hardwired backend knobs ──────────────────────────────────────────────────
+# pipeline_stages — register stages in the clause-score adder tree.
+#   0 = fully combinational (min latency, may miss timing at high clock).
+#   ceil(log2(n_clauses_per_class / 2)) = fully pipelined (best Fmax).
+#   For 400 clauses: ceil(log2(200)) = 8.  Default 3 is a safe middle ground.
+pipeline_stages: 3

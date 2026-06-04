@@ -15,7 +15,7 @@ class HardwiredAcceleratorConfig(BaseModel):
     no sequential FSM for clause evaluation.  Lower latency than tiled for
     small-to-medium models; LUT cost grows with clause count.
     """
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     model_path: Path = Field(description="Path to a TMIR .yaml or .npz file.")
     output_dir: Path = Field(

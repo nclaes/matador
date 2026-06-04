@@ -80,7 +80,7 @@ class ValidationConfig(BaseModel):
 
 class TMAcceleratorConfig(BaseModel):
     """Configuration for RTL generation from a vanilla TMIR model."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     model_path: Path = Field(description="Path to a TMIR .yaml or .npz file.")
     output_dir: Path = Field(description="Root output directory; RTL is written to <output_dir>/RTL/.")
