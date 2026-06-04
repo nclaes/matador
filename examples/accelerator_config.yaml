@@ -1,7 +1,12 @@
-# accelerator_config.yaml — Matador RTL generation configuration
+# accelerator_config.yaml — Matador RTL generation configuration (tiled backend)
+#
+# This file is kept for backward compatibility.  For new projects use the
+# backend-specific examples:
+#   examples/tiled_config.yaml     — tiled backend (feat_slice / clause_slice)
+#   examples/hardwired_config.yaml — hardwired backend (pipeline_stages) [Phase 2]
 #
 # Usage:
-#   matador generate --config examples/accelerator_config.yaml
+#   matador generate --backend tiled --config examples/accelerator_config.yaml
 #
 # Prerequisites:
 #   A trained TMIR model at model_path (produced by `matador train`).

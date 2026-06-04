@@ -119,3 +119,9 @@ class TMAcceleratorConfig(BaseModel):
         if v & (v - 1) != 0:
             raise ValueError(f"fifo_depth must be a power of 2, got {v}")
         return v
+
+
+# Canonical name used by the tiled backend module.
+# TMAcceleratorConfig remains the primary definition here; this alias
+# will be removed once all call sites migrate to the backend-namespaced import.
+TiledAcceleratorConfig = TMAcceleratorConfig

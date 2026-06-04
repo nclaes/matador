@@ -238,31 +238,48 @@ _DEFAULT_ACCELERATOR_CONFIG = Path("/work/accelerator_config.yaml")
 
 @main.command("generate")
 @click.option(
+    "--backend", "backend_name",
+    default="tiled",
+    show_default=True,
+    type=click.Choice(["tiled", "hardwired"]),
+    help="Accelerator architecture to generate.",
+)
+@click.option(
     "--config",
     "config_path",
     type=click.Path(path_type=Path),
     default=_DEFAULT_ACCELERATOR_CONFIG,
     show_default=True,
-    help="Path to accelerator_config.yaml.",
+    help="Path to backend config YAML (see examples/tiled_config.yaml or hardwired_config.yaml).",
 )
-def generate(config_path: Path) -> None:
-    """Generate RTL for a vanilla TM accelerator from an accelerator config file."""
-    from matador.config.schema import TMAcceleratorConfig
+def generate(backend_name: str, config_path: Path) -> None:
+    """Generate RTL for a TM accelerator.
+
+    \b
+    Backends:
+      tiled      Sequential FSM + tile ROM (default).
+                 Config knobs: feat_slice, clause_slice.
+      hardwired  Combinational AND-gate unrolling + adder tree. [Phase 2]
+                 Config knobs: pipeline_stages.
+    """
+    from matador.backends.registry import get as get_backend
     from matador.ir.tm_ir import TMIR
-    from matador.rtl.accelerator import TMAccelerator
 
     if not config_path.exists():
         raise click.ClickException(
             f"Config file not found: {config_path}\n"
-            "  Create one based on examples/accelerator_config.yaml."
+            f"  Create one based on examples/{backend_name}_config.yaml."
         )
+
+    backend = get_backend(backend_name)()
 
     try:
         raw    = yaml.safe_load(config_path.read_text())
-        config = TMAcceleratorConfig.model_validate(raw)
+        config = backend.config_class.model_validate(raw)
     except Exception as exc:
         raise click.ClickException(f"Invalid config: {exc}") from exc
 
+    click.echo(f"Backend    : {backend_name}")
     click.echo(f"Loading model: {config.model_path}")
     try:
         suffix = config.model_path.suffix.lower()
@@ -277,26 +294,26 @@ def generate(config_path: Path) -> None:
         f"{tmir.architecture.n_clauses_total} clauses"
     )
     click.echo(f"  AXI-Stream width : {config.axis_data_width} bits")
-    click.echo(f"  FIFO depth       : {config.fifo_depth}")
-    click.echo(f"  Tile dimensions  : feat_slice={config.feat_slice}  clause_slice={config.clause_slice}")
+    if backend_name == "tiled":
+        click.echo(f"  feat_slice={config.feat_slice}  clause_slice={config.clause_slice}")
+    elif backend_name == "hardwired":
+        click.echo(f"  pipeline_stages={config.pipeline_stages}")
     click.echo("")
 
     try:
-        accel   = TMAccelerator(tmir, config)
-        rtl_dir = accel.generate()
+        artifacts = backend.generate(tmir, config)
+        rtl_dir   = artifacts.rtl_dir
+    except NotImplementedError as exc:
+        raise click.ClickException(str(exc)) from exc
     except Exception as exc:
         raise click.ClickException(f"RTL generation failed: {exc}") from exc
 
     click.echo(f"RTL written to: {rtl_dir}")
     click.echo("")
-    click.echo("Sources    : RTL/src/tm_accelerator.v  (+axis_fifo, clause_eval, score_acc, argmax)")
-    click.echo("Testbenches: RTL/tb/tb_system.v  (+tb_axis_fifo, tb_clause_eval, tb_score_acc, tb_argmax)")
-    click.echo("Waveforms  : RTL/sim/tb_system.gtkw  (+tb_axis_fifo, tb_clause_eval, tb_score_acc, tb_argmax)")
-    click.echo("")
     click.echo("To run the software emulator (no simulator required):")
-    click.echo(f"  matador emulate --config {config_path} --verify")
+    click.echo(f"  matador emulate --backend {backend_name} --config {config_path}")
     click.echo("To simulate (iverilog — produces .vcd):")
-    click.echo(f"  matador simulate --config {config_path}")
+    click.echo(f"  matador simulate --backend {backend_name} --config {config_path}")
     click.echo("To simulate with Verilator (produces FST waveforms):")
     click.echo(f"  make -C {rtl_dir}/sim/verilator run")
     click.echo("To open GTKWave:")
@@ -307,12 +324,19 @@ def generate(config_path: Path) -> None:
 
 @main.command("simulate")
 @click.option(
+    "--backend", "backend_name",
+    default="tiled",
+    show_default=True,
+    type=click.Choice(["tiled", "hardwired"]),
+    help="Backend that was used to generate the RTL.",
+)
+@click.option(
     "--config",
     "config_path",
     type=click.Path(path_type=Path),
     default=_DEFAULT_ACCELERATOR_CONFIG,
     show_default=True,
-    help="Path to accelerator_config.yaml.",
+    help="Path to backend config YAML.",
 )
 @click.option(
     "--sim",
@@ -324,20 +348,21 @@ def generate(config_path: Path) -> None:
 @click.option("--tb", default=None, help="Run only this testbench (e.g. tb_system).")
 @click.option("--waves", "open_waves", is_flag=True, default=False,
               help="Open GTKWave after simulation.")
-def simulate(config_path: Path, sim: str, tb: str, open_waves: bool) -> None:
+def simulate(backend_name: str, config_path: Path, sim: str, tb: str, open_waves: bool) -> None:
     """Compile and run RTL testbenches; optionally open GTKWave."""
-    from matador.config.schema import TMAcceleratorConfig
+    from matador.backends.registry import get as get_backend
     from matador.models.validator import validate_rtl
 
     if not config_path.exists():
         raise click.ClickException(
             f"Config file not found: {config_path}\n"
-            "  Run 'matador generate' first."
+            f"  Run 'matador generate --backend {backend_name}' first."
         )
 
+    backend = get_backend(backend_name)()
     try:
         raw    = yaml.safe_load(config_path.read_text())
-        config = TMAcceleratorConfig.model_validate(raw)
+        config = backend.config_class.model_validate(raw)
     except Exception as exc:
         raise click.ClickException(f"Invalid config: {exc}") from exc
 
@@ -421,12 +446,19 @@ def waves(config_path: Path, tb: str) -> None:
 
 @main.command("emulate")
 @click.option(
+    "--backend", "backend_name",
+    default="tiled",
+    show_default=True,
+    type=click.Choice(["tiled", "hardwired"]),
+    help="Backend that was used to generate the RTL.",
+)
+@click.option(
     "--config",
     "config_path",
     type=click.Path(path_type=Path),
     default=_DEFAULT_ACCELERATOR_CONFIG,
     show_default=True,
-    help="Path to accelerator_config.yaml.",
+    help="Path to backend config YAML.",
 )
 @click.option("--trace", "trace_path", type=click.Path(path_type=Path),
               default=None, help="Write InferenceTrace JSON to this path.")
@@ -434,22 +466,23 @@ def waves(config_path: Path, tb: str) -> None:
               help="Print per-vector trace summary to stdout.")
 @click.option("--verify", is_flag=True, default=False,
               help="Also cross-check emulator against reference inference.")
-def emulate(config_path: Path, trace_path: Path, verbose: bool, verify: bool) -> None:
+def emulate(backend_name: str, config_path: Path, trace_path: Path, verbose: bool, verify: bool) -> None:
     """Run the software emulator on embedded TMIR test vectors."""
     import json
-    from matador.config.schema import TMAcceleratorConfig
+    from matador.backends.registry import get as get_backend
     from matador.emulator.accelerator import TMAcceleratorEmulator
     from matador.ir.tm_ir import TMIR
 
     if not config_path.exists():
         raise click.ClickException(
             f"Config file not found: {config_path}\n"
-            "  Run 'matador generate' first or point to an accelerator_config.yaml."
+            f"  Run 'matador generate --backend {backend_name}' first or point to a config YAML."
         )
 
+    backend = get_backend(backend_name)()
     try:
         raw    = yaml.safe_load(config_path.read_text())
-        config = TMAcceleratorConfig.model_validate(raw)
+        config = backend.config_class.model_validate(raw)
     except Exception as exc:
         raise click.ClickException(f"Invalid config: {exc}") from exc
 
@@ -626,8 +659,17 @@ def version() -> None:
 
 @main.command("list-backends")
 def list_backends() -> None:
-    """List available synthesis and implementation backends."""
-    click.echo("Available backends:")
+    """List available RTL accelerator backends."""
+    from matador.backends.registry import list_backends as _list
+    click.echo("Available accelerator backends (--backend flag):")
+    descriptions = {
+        "tiled":     "Sequential FSM + tile ROM.  Knobs: feat_slice, clause_slice.",
+        "hardwired": "Combinational AND-gate unrolling + adder tree.  Knobs: pipeline_stages.  [Phase 2]",
+    }
+    for name in _list():
+        click.echo(f"  {name:<12} {descriptions.get(name, '')}")
+    click.echo("")
+    click.echo("Synthesis backends (Vivado):")
     click.echo("  vivado      Xilinx Vivado (synthesis + implementation)")
 
 

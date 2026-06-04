@@ -1,0 +1,32 @@
+# hardwired_config.yaml — Hardwired accelerator backend configuration
+#
+# Usage:
+#   matador generate --backend hardwired --config examples/hardwired_config.yaml
+#
+# Architecture: TA Include actions are unrolled directly into AND-gate logic —
+# no tile ROM, no sequential FSM for clause evaluation.  A balanced binary
+# adder tree accumulates per-class scores.  Lower latency than tiled for
+# small-to-medium models; LUT cost grows linearly with clause count.
+#
+# Status: Phase 2 — not yet implemented.
+#
+# Prerequisites: a trained TMIR model at model_path (from `matador train`).
+
+# Path to the trained TMIR model file (.yaml or .npz).
+model_path: /work/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+
+# Root output directory.  RTL is written to <output_dir>/RTL/.
+output_dir: /work
+
+# AXI-Stream TDATA width in bits.
+# Allowed: 32 or 64.
+axis_data_width: 32
+
+# pipeline_stages — register stages inserted in the clause-score adder tree.
+#   0 = fully combinational: minimum latency, but may not meet timing at high
+#       clock frequencies due to the long combinational path through the tree.
+#   N = N register stages: improves Fmax at the cost of N extra clock cycles
+#       of pipeline fill latency.
+#   Recommended: ceil(log2(n_clauses_per_class / 2)) for full pipelining.
+#   For a 400-clause model: ceil(log2(200)) = 8 stages.
+pipeline_stages: 3
