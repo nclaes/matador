@@ -131,7 +131,7 @@ def _dm(state: dict) -> list[str]:
         lines += [
             f"{_GOLD}  No work directory mounted.{_RESET}",
             "",
-            f"  The corrida cannot begin without one:",
+            f"  The workflow cannot begin without one:",
             f"    {_CYAN}make shell WORK_DIR=/path/to/your/data{_RESET}",
         ]
         return lines
@@ -141,7 +141,7 @@ def _dm(state: dict) -> list[str]:
         lines += [
             f"{_GOLD}  Nothing here yet.{_RESET}",
             "",
-            f"  Set up your training configuration to begin the corrida:",
+            f"  Set up your training configuration to begin the workflow:",
             f"    {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}",
             "",
             f"  Edit it for your dataset and hyperparameters, then:",
@@ -238,12 +238,12 @@ def _dm(state: dict) -> list[str]:
             lines += [
                 "",
                 f"  {_GREEN}Provenance report written.{_RESET}",
-                f"  {_DIM}The corrida is complete when all testbenches pass and provenance is filed.{_RESET}",
+                f"  {_DIM}The workflow is complete when all testbenches pass and provenance is filed.{_RESET}",
             ]
         else:
             lines += [
                 "",
-                f"  {_DIM}The corrida is complete when testbenches pass and provenance is filed.{_RESET}",
+                f"  {_DIM}The workflow is complete when testbenches pass and provenance is filed.{_RESET}",
             ]
         return lines
 
