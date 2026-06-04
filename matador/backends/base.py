@@ -109,6 +109,11 @@ class RTLBackend(ABC):
         """Pre-synthesis resource estimate. Override for synthesis guidance."""
         return ResourceEstimate(notes="No estimate available for this backend.")
 
+    @property
+    def emulator_class(self):
+        """Return the CycleAccurateModel class paired with this backend, or None."""
+        return None
+
 
 class CycleAccurateModel(ABC):
     """Cycle-accurate Python model of one specific RTLBackend.

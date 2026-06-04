@@ -60,6 +60,11 @@ class HardwiredBackend(RTLBackend):
         from matador.backends.hardwired.config import HardwiredAcceleratorConfig
         return HardwiredAcceleratorConfig
 
+    @property
+    def emulator_class(self):
+        from matador.backends.hardwired.emulator import HardwiredEmulator
+        return HardwiredEmulator
+
     def generate(self, tmir, config) -> RTLArtifacts:
         if tmir.architecture.clause_organization != "per_class":
             raise ValueError(
@@ -687,7 +692,7 @@ class _HardwiredGenerator:
             );
 
         """) + self._tb_vec_decls(vecs) + textwrap.dedent(f"""\
-            integer v, b, pass_cnt, fail_cnt;
+            integer v, b, pass_cnt, fail_cnt, timeout_cnt;
 
             initial clk = 0;
             always #CLK_HALF clk = ~clk;
@@ -713,12 +718,19 @@ class _HardwiredGenerator:
                         while (!s_tready) @(posedge clk);
                     end
                     s_tvalid = 1'b0; s_tlast = 1'b0;
-                    repeat ({total_latency + 4}) @(posedge clk);
+                    // Poll for m_tvalid — handshake completes in one cycle so
+                    // a fixed repeat() would miss the pulse. Timeout after 2x
+                    // expected latency to catch a stuck FSM.
+                    timeout_cnt = 0;
+                    while (!m_tvalid && timeout_cnt < {(total_latency + 4) * 2}) begin
+                        @(posedge clk); #1;
+                        timeout_cnt = timeout_cnt + 1;
+                    end
                     if (m_tvalid) begin
                         $display("vec %0d: predicted=%0d  PASS", v, m_tdata[{max(1, self.CLASS_W)-1}:0]);
                         pass_cnt = pass_cnt + 1;
                     end else begin
-                        $display("vec %0d: FAIL (m_tvalid not asserted)", v);
+                        $display("vec %0d: FAIL (m_tvalid not asserted within %0d cycles)", v, timeout_cnt);
                         fail_cnt = fail_cnt + 1;
                     end
                 end

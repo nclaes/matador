@@ -47,6 +47,11 @@ class TiledBackend(RTLBackend):
             sim_scripts= sorted(sim_dir.glob("*.sh")) + sorted(sim_dir.glob("*.gtkw")),
         )
 
+    @property
+    def emulator_class(self):
+        from matador.backends.tiled.emulator import TiledEmulator
+        return TiledEmulator
+
     def resource_estimate(self, tmir, config) -> ResourceEstimate:
         return ResourceEstimate(
             notes=(

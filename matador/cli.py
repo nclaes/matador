@@ -565,7 +565,6 @@ def emulate(backend_name: str, config_path: Path, trace_path: Path, verbose: boo
     """Run the software emulator on embedded TMIR test vectors."""
     import json
     from matador.backends.registry import get as get_backend
-    from matador.emulator.accelerator import TMAcceleratorEmulator
     from matador.ir.tm_ir import TMIR
 
     if not config_path.exists():
@@ -601,7 +600,13 @@ def emulate(backend_name: str, config_path: Path, trace_path: Path, verbose: boo
     click.echo(f"Running emulator on {len(vectors)} test vector(s)…")
     click.echo("")
 
-    emul = TMAcceleratorEmulator(tmir, config)
+    emulator_cls = backend.emulator_class
+    if emulator_cls is None:
+        raise click.ClickException(
+            f"The '{backend_name}' backend does not have a software emulator."
+        )
+    emul = emulator_cls(tmir, config)
+
     all_traces = []
     fail_cnt   = 0
     pass_cnt   = 0
@@ -619,14 +624,25 @@ def emulate(backend_name: str, config_path: Path, trace_path: Path, verbose: boo
             label = click.style("FAIL", fg="red")
             fail_cnt += 1
 
-        scores_str = ", ".join(str(s) for s in (trace.argmax_event.scores if trace.argmax_event else []))
+        argmax  = getattr(trace, "argmax_event", None)
+        scores_str = ", ".join(str(s) for s in (argmax.scores if argmax else []))
         click.echo(f"  [{idx:3d}] {label}  predicted={predicted}  expected={expected}  scores=[{scores_str}]")
 
         if verbose:
-            click.echo(f"         FSM transitions: {len(trace.fsm_events)}")
-            click.echo(f"         ROM reads:        {len(trace.rom_events)}")
-            click.echo(f"         Clause evals:     {len(trace.clause_partial_events)}")
-            click.echo(f"         Score votes:      {len(trace.score_vote_events)}")
+            # Tiled-specific counters
+            if hasattr(trace, "fsm_events"):
+                click.echo(f"         FSM transitions: {len(trace.fsm_events)}")
+            if hasattr(trace, "rom_events"):
+                click.echo(f"         ROM reads:        {len(trace.rom_events)}")
+            if hasattr(trace, "clause_partial_events"):
+                click.echo(f"         Clause evals:     {len(trace.clause_partial_events)}")
+            if hasattr(trace, "score_vote_events"):
+                click.echo(f"         Score votes:      {len(trace.score_vote_events)}")
+            # Hardwired-specific counters
+            if hasattr(trace, "clause_eval_events"):
+                click.echo(f"         Clause evals:     {len(trace.clause_eval_events)}")
+            if hasattr(trace, "pipeline_stages_waited"):
+                click.echo(f"         Pipeline stages:  {trace.pipeline_stages_waited}")
 
         all_traces.append(trace)
 
