@@ -59,52 +59,30 @@ def faena() -> None:
 
 def _print_toolchain() -> None:
     """Print the Matador toolchain stages to stdout."""
-    # Right column is 40 chars wide
-    C = 40
     stages = [
-        ("train",
-         "Train a TM model on Boolean feature data",
-         "training_config.yaml → TMIR (.npz/.yaml)"),
-        ("validate",
-         "Check model accuracy on the held-out test",
-         "TMIR + test data → accuracy report"),
-        ("generate",
-         "Synthesise Verilog RTL for all backends",
-         "TMIR + generate_config.yaml → RTL/"),
-        ("emulate",
-         "Cycle-accurate software emulator",
-         "TMIR + config → InferenceTrace per sample"),
-        ("simulate",
-         "Compile and run RTL testbenches",
-         "generated RTL → PASS/FAIL per testbench"),
-        ("provenance",
-         "ROM-based inference report",
-         "TMIR + test data → JSON (fingerprint+acc)"),
+        ("train",      "Train a TM model on Boolean feature data",
+                       "training_config.yaml  →  TMIR (.npz / .yaml)"),
+        ("validate",   "Check model accuracy on the held-out test set",
+                       "TMIR + test data  →  accuracy report"),
+        ("generate",   "Synthesise Verilog RTL for all configured backends",
+                       "TMIR + generate_config.yaml  →  RTL/"),
+        ("emulate",    "Cycle-accurate software emulator — no simulator needed",
+                       "TMIR + config  →  InferenceTrace per sample"),
+        ("simulate",   "Compile and run RTL testbenches",
+                       "generated RTL  →  PASS / FAIL per testbench"),
+        ("provenance", "ROM-based full-dataset inference report",
+                       "TMIR + test data  →  JSON (fingerprint + accuracy)"),
     ]
 
-    # Column widths (content only, excluding │ and padding):
-    #   left  = 22  →  cell = 2+22+2 = 26 chars between │
-    #   right = 42  →  cell = 2+42+2 = 46 chars between │
-    # Total line = 2(indent) + 1(│) + 26 + 1(│) + 46 + 1(│) = 77 chars
-    LW, RW = 22, 42
-    top  = "  ┌" + "─"*(LW+4) + "┬" + "─"*(RW+4) + "┐"
-    mid  = "  ├" + "─"*(LW+4) + "┼" + "─"*(RW+4) + "┤"
-    sep  = "  ├" + "─"*(LW+4) + "┼" + "─"*(RW+4) + "┤"
-    bot  = "  └" + "─"*(LW+4) + "┴" + "─"*(RW+4) + "┘"
-    blk  = f"  │  {'':^{LW}}  │  {'':^{RW}}  │"
-    title = "The Matador Toolchain"
-    hdr  = f"  │  {title:^{LW+RW+6}}  │"
-
     click.echo("")
-    click.echo(top)
-    click.echo(hdr)
-    click.echo("  ├" + "─"*(LW+4) + "┬" + "─"*(RW+4) + "┤")
+    click.echo("  The Matador Toolchain")
+    click.echo("  " + "─" * 60)
     for cmd, summary, detail in stages:
-        c1 = f"matador {cmd}"
-        click.echo(f"  │  {c1:<{LW}}  │  {summary[:RW]:<{RW}}  │")
-        click.echo(f"  │  {'':^{LW}}  │  {detail[:RW]:<{RW}}  │")
-        click.echo(blk)
-    click.echo(bot)
+        label = f"matador {cmd}"
+        pad   = " " * max(0, 24 - len(label))
+        click.echo(f"  {click.style(label, bold=True)}{pad}  {summary}")
+        click.echo(f"  {'':24}  {click.style(detail, dim=True)}")
+        click.echo("")
 
 
 
