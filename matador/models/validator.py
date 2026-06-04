@@ -152,25 +152,29 @@ def validate_rtl(config) -> RTLValidationReport:
             "  Install one: apt-get install iverilog   OR   apt-get install verilator"
         )
 
-    sources = [
-        str(src_dir / "axis_fifo.v"),
-        str(src_dir / "clause_eval.v"),
-        str(src_dir / "score_acc.v"),
-        str(src_dir / "argmax.v"),
-        str(src_dir / "tm_accelerator.v"),
-    ]
+    # Discover sources and testbenches from the directory — backend-agnostic.
+    # Tiled generates: axis_fifo.v, clause_eval.v, score_acc.v, argmax.v, tm_accelerator.v
+    # Hardwired generates: axis_fifo.v, hw_tm_accelerator.v
+    sources = sorted(str(f) for f in src_dir.glob("*.v"))
+    tb_files = sorted(tb_dir.glob("tb_*.v"))
+
+    if not sources:
+        raise FileNotFoundError(
+            f"No Verilog source files found in {src_dir}\n"
+            "  Run 'matador generate' first."
+        )
+
     results: list = []
 
-    # ── Unit tests — always iverilog ──────────────────────────────────────────
-    unit_tbs = ["tb_axis_fifo", "tb_clause_eval", "tb_score_acc", "tb_argmax"]
+    # ── Run every testbench with iverilog ─────────────────────────────────────
     if have_iverilog:
-        for tb_name in unit_tbs:
-            tb_file = str(tb_dir / f"{tb_name}.v")
+        for tb_path in tb_files:
+            tb_name = tb_path.stem
             out_bin = str(sim_dir / tb_name)
 
             cp = subprocess.run(
                 ["iverilog", "-g2001", "-Wall", "-Wno-timescale", "-o", out_bin]
-                + sources + [tb_file],
+                + sources + [str(tb_path)],
                 capture_output=True, text=True,
             )
             if cp.returncode != 0:
@@ -188,15 +192,14 @@ def validate_rtl(config) -> RTLValidationReport:
             failures  = [l for l in all_lines if "FAIL" in l or "TIMEOUT" in l]
             passed    = not failures and rp.returncode == 0
             summary   = next((l for l in reversed(all_lines) if l.strip()), "")
-
             results.append(RTLTestResult(
                 name=tb_name, passed=passed,
                 summary=summary, failures=failures,
             ))
     else:
-        _LOGGER.warning("iverilog not found — skipping unit tests")
+        _LOGGER.warning("iverilog not found — skipping testbenches")
 
-    # ── System test — Verilator preferred, iverilog fallback ─────────────────
+    # ── Verilator system test (tiled backend only — generates a Makefile harness) ──
     have_verilator_harness = verilator_dir.exists() and (verilator_dir / "Makefile").exists()
 
     if have_verilator and have_verilator_harness:
@@ -208,12 +211,14 @@ def validate_rtl(config) -> RTLValidationReport:
         if cp.returncode != 0:
             err_lines = [l for l in (cp.stderr + cp.stdout).splitlines() if l.strip()]
             results.append(RTLTestResult(
-                name="tb_system", passed=False,
+                name="tb_system [verilator]", passed=False,
                 summary="verilator build error",
                 failures=err_lines[:15],
             ))
         else:
-            bin_path = verilator_dir / "obj_dir" / "Vtm_accelerator"
+            # Find the built binary (name depends on top-level module)
+            candidates = list((verilator_dir / "obj_dir").glob("V*"))
+            bin_path   = candidates[0] if candidates else verilator_dir / "obj_dir" / "Vtm_accelerator"
             rp = subprocess.run(
                 [str(bin_path)], capture_output=True, text=True,
                 cwd=str(verilator_dir),
@@ -222,43 +227,9 @@ def validate_rtl(config) -> RTLValidationReport:
             failures  = [l for l in all_lines if "FAIL" in l or "TIMEOUT" in l]
             passed    = not failures and rp.returncode == 0
             summary   = next((l for l in reversed(all_lines) if l.strip()), "")
-            # Annotate to show Verilator was used
             results.append(RTLTestResult(
-                name="tb_system", passed=passed,
-                summary=f"[verilator] {summary}",
-                failures=failures,
-            ))
-
-    elif have_iverilog:
-        _LOGGER.debug("Verilator not available — running tb_system with iverilog")
-        tb_name = "tb_system"
-        tb_file = str(tb_dir / f"{tb_name}.v")
-        out_bin = str(sim_dir / tb_name)
-
-        cp = subprocess.run(
-            ["iverilog", "-g2001", "-Wall", "-Wno-timescale", "-o", out_bin]
-            + sources + [tb_file],
-            capture_output=True, text=True,
-        )
-        if cp.returncode != 0:
-            err_lines = [l for l in (cp.stderr or cp.stdout).splitlines() if l.strip()]
-            results.append(RTLTestResult(
-                name=tb_name, passed=False,
-                summary="compile error",
-                failures=err_lines[:10],
-            ))
-        else:
-            rp = subprocess.run(["vvp", out_bin], capture_output=True, text=True,
-                                cwd=str(sim_dir))
-            all_lines = (rp.stdout + rp.stderr).splitlines()
-            failures  = [l for l in all_lines if "FAIL" in l or "TIMEOUT" in l]
-            passed    = not failures and rp.returncode == 0
-            summary   = next((l for l in reversed(all_lines) if l.strip()), "")
-            results.append(RTLTestResult(
-                name=tb_name, passed=passed,
+                name="tb_system [verilator]", passed=passed,
                 summary=summary, failures=failures,
             ))
-    else:
-        _LOGGER.warning("No simulator available for tb_system")
 
     return RTLValidationReport(results=results)
