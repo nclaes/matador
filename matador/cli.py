@@ -541,6 +541,80 @@ def emulate(config_path: Path, trace_path: Path, verbose: bool, verify: bool) ->
         raise SystemExit(1)
 
 
+@main.command("provenance")
+@click.option(
+    "--model",
+    "model_path",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Path to TMIR model file (.yaml or .npz).",
+)
+@click.option(
+    "--test-data",
+    "test_data_path",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Path to space-separated Boolean test dataset (last column = label).",
+)
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write JSON report to this path (default: <model_dir>/provenance_report.json).",
+)
+def provenance(model_path: Path, test_data_path: Path, output_path: Path) -> None:
+    """Run full-dataset ROM-based inference and write a provenance report.
+
+    Loads the Include-action matrix from the TMIR file (identical to what
+    the RTL tile ROM stores) and runs inference through the pure-NumPy
+    reference engine.  No tmu C extension required.
+
+    The JSON report includes: model fingerprint, dataset SHA-256, accuracy,
+    per-class accuracy, and confusion matrix — suitable for sharing with
+    hardware collaborators as a golden reference.
+    """
+    from matador.inference.provenance import generate
+
+    if not model_path.exists():
+        raise click.ClickException(f"Model file not found: {model_path}")
+    if not test_data_path.exists():
+        raise click.ClickException(f"Test dataset not found: {test_data_path}")
+
+    if output_path is None:
+        output_path = model_path.parent / "provenance_report.json"
+
+    click.echo(f"Model      : {model_path}")
+    click.echo(f"Test data  : {test_data_path}")
+    click.echo(f"Inference  : ROM-equivalent (pure NumPy, matador.inference.reference)")
+    click.echo("")
+
+    try:
+        report = generate(model_path, test_data_path)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"  Samples  : {report.n_samples}")
+    click.echo(f"  Features : {report.n_features}")
+    click.echo(f"  Classes  : {report.n_classes}")
+    click.echo(f"  Clauses  : {report.n_clauses_total}")
+    click.echo("")
+    click.echo(f"  Accuracy : {report.accuracy_pct:.2f}%"
+               f"  ({report.accuracy_correct}/{report.accuracy_total})")
+    click.echo("")
+    click.echo("  Per-class accuracy:")
+    for cls, res in report.per_class.items():
+        click.echo(f"    class {cls:>2}  {res['accuracy_pct']:6.2f}%"
+                   f"  ({res['correct']}/{res['total']})")
+    click.echo("")
+    click.echo(f"  Model fingerprint : {report.model_fingerprint}")
+    click.echo(f"  Dataset SHA-256   : {report.test_data_sha256}")
+    click.echo("")
+
+    report.write(output_path)
+    click.echo(f"Provenance report written to:\n  {output_path}")
+
+
 @main.command()
 def version() -> None:
     """Print the Matador version."""

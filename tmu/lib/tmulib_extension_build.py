@@ -28,7 +28,7 @@ current_dir = pathlib.Path(__file__).parent
 source_dir = current_dir.joinpath("src")
 header_dir = current_dir.joinpath("include")
 
-HEADERS = ["ClauseBank.h", "Tools.h", "WeightBank.h", "ClauseBankSparse.h"]
+HEADERS = ["ClauseBank.h", "Tools.h", "WeightBank.h", "ClauseBankSparse.h", "fast_rand_seed.h"]
 SOURCES = [
     "random/pcg32_fast.c",
     "random/xorshift128.c",
