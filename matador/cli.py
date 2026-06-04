@@ -1,4 +1,5 @@
 import logging
+import sys
 from pathlib import Path
 
 import click
@@ -11,10 +12,16 @@ _DEFAULT_CONFIG = Path("/work/training_config.yaml")
 _LOGGER = logging.getLogger(__name__)
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.option("-v", "--verbose", is_eager=True, is_flag=True, default=False, help="Enable verbose logging.")
-def main(verbose: bool) -> None:
+@click.pass_context
+def main(ctx: click.Context, verbose: bool) -> None:
     """Matador — automated RTL Accelerator Generator for Tsetlin Machines."""
+    if ctx.invoked_subcommand is None:
+        from matador.splash import show_if_interactive
+        if not show_if_interactive():
+            click.echo(ctx.get_help())
+        return
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(format="%(levelname)s: %(message)s", level=level)
 
