@@ -146,6 +146,12 @@ def export_tmir(tm, config: TrainingConfig) -> tuple[Path, Path, Path]:
     val_cfg_path = tmir_dir / "validation_config.yaml"
     val_cfg_path.write_text(_yaml.dump(val_cfg, default_flow_style=False, sort_keys=False))
 
+    # Write standalone provenance script + companion data files so the
+    # model can be verified without a matador installation.
+    from matador.inference.script_gen import write_provenance_artifacts
+    script_path = write_provenance_artifacts(tmir, tmir_dir, test_data_path=config.test_data)
+
     _LOGGER.info("TMIR written to %s  (+.npz)", yaml_path)
     _LOGGER.info("Validation config written to %s", val_cfg_path)
+    _LOGGER.info("Provenance script written to %s", script_path)
     return yaml_path, npz_path, val_cfg_path

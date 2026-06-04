@@ -110,7 +110,10 @@ def _run_training(config_path: Path) -> None:
     click.echo("")
     click.echo("Exporting TMIR…")
     yaml_out, npz_out, val_cfg_out = export_tmir(tm, config)
+    tmir_dir = yaml_out.parent
     click.echo(f"Done. TMIR written to:\n  {yaml_out}\n  {npz_out}")
+    click.echo(f"\nProvenance script (numpy-only, shareable):")
+    click.echo(f"  python3 {tmir_dir}/rom_inference.py --test-data <path>")
     click.echo(f"\nTo validate the trained model run:")
     click.echo(f"  matador validate --config {val_cfg_out}")
 
