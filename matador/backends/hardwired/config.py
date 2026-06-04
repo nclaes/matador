@@ -25,6 +25,11 @@ class HardwiredAcceleratorConfig(BaseModel):
         default=32,
         description="AXI-Stream TDATA width in bits.",
     )
+    fifo_depth: int = Field(
+        default=16,
+        ge=4,
+        description="Input FIFO depth in beats (must be a power of 2).",
+    )
     pipeline_stages: int = Field(
         default=3,
         ge=0,
