@@ -6,6 +6,7 @@ import click
 import yaml
 
 from matador import __version__
+from matador.backends.registry import list_backends
 
 _DEFAULT_CONFIG = Path("/work/training_config.yaml")
 
@@ -158,9 +159,9 @@ _DEFAULT_VALIDATION_CONFIG = Path("/work/validation_config.yaml")
 @main.command("validate")
 @click.option(
     "--backend", "backend_name",
-    default="tiled",
+    default="vanilla_tiled",
     show_default=True,
-    type=click.Choice(["tiled", "hardwired"]),
+    type=click.Choice(list_backends()),
     help="Backend (used with --mode rtl to locate the generated RTL directory).",
 )
 @click.option(
@@ -285,10 +286,10 @@ _DEFAULT_ACCELERATOR_CONFIG = Path("/work/accelerator_config.yaml")
 @click.option(
     "--backend", "backend_name",
     required=True,
-    type=click.Choice(["tiled", "hardwired"]),
+    type=click.Choice(list_backends()),
     help=(
         "Accelerator architecture to generate.  "
-        "Each backend uses its own config file: /work/tiled.yaml or /work/hardwired.yaml."
+        "Each backend uses its own config file: /work/vanilla_tiled.yaml or /work/vanilla_hardwired.yaml."
     ),
 )
 @click.option(
@@ -305,13 +306,13 @@ def generate(backend_name: str, config_path: Path | None) -> None:
 
     \b
     Examples:
-      matador generate --backend tiled     --config /work/tiled.yaml
-      matador generate --backend hardwired --config /work/hardwired.yaml
+      matador generate --backend vanilla_tiled     --config /work/vanilla_tiled.yaml
+      matador generate --backend vanilla_hardwired --config /work/vanilla_hardwired.yaml
 
     \b
     Config templates:
-      cp examples/tiled.yaml     /work/tiled.yaml
-      cp examples/hardwired.yaml /work/hardwired.yaml
+      cp examples/vanilla_tiled.yaml     /work/vanilla_tiled.yaml
+      cp examples/vanilla_hardwired.yaml /work/vanilla_hardwired.yaml
     """
     from matador.backends.registry import get as get_backend
     from matador.ir.tm_ir import TMIR
@@ -381,7 +382,7 @@ def generate(backend_name: str, config_path: Path | None) -> None:
 @click.option(
     "--backend", "backend_name",
     required=True,
-    type=click.Choice(["tiled", "hardwired"]),
+    type=click.Choice(list_backends()),
     help="Backend to simulate.  Default config: /work/<backend>.yaml",
 )
 @click.option(
@@ -507,7 +508,7 @@ def waves(config_path: Path, tb: str) -> None:
 @click.option(
     "--backend", "backend_name",
     required=True,
-    type=click.Choice(["tiled", "hardwired"]),
+    type=click.Choice(list_backends()),
     help="Backend to emulate.  Default config: /work/<backend>.yaml",
 )
 @click.option(
@@ -756,17 +757,16 @@ def version() -> None:
 
 
 @main.command("list-backends")
-def list_backends() -> None:
-    """List available RTL accelerator backends."""
-    from matador.backends.registry import list_backends as _list
-    click.echo("Available accelerator backends (--backend flag):")
-    descriptions = {
-        "tiled":     "Sequential FSM + tile ROM.  Knobs: feat_slice, clause_slice.",
-        "hardwired": "Combinational AND-gate unrolling + adder tree.  Knobs: pipeline_stages.  [Phase 2]",
-    }
-    for name in _list():
-        click.echo(f"  {name:<12} {descriptions.get(name, '')}")
+def list_backends_cmd() -> None:
+    """List available RTL accelerator backends from the plugin registry."""
+    from matador.backends.registry import describe, list_backends as _list
+    click.echo("Registered accelerator backends  (--backend flag):")
     click.echo("")
+    for name in _list():
+        click.echo(f"  {click.style(name, bold=True)}")
+        click.echo(f"    {describe(name)}")
+        click.echo(f"    Config template:  examples/{name}.yaml")
+        click.echo("")
     click.echo("Synthesis backends (Vivado):")
     click.echo("  vivado      Xilinx Vivado (synthesis + implementation)")
 

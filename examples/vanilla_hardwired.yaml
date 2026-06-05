@@ -1,7 +1,7 @@
-# hardwired.yaml — Hardwired accelerator backend configuration
+# vanilla_hardwired.yaml — Hardwired accelerator backend configuration
 #
 # Usage:
-#   matador generate --backend hardwired --config examples/hardwired.yaml
+#   matador generate --backend vanilla_hardwired --config examples/vanilla_hardwired.yaml
 #
 # Architecture
 # ------------

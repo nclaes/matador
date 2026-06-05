@@ -26,7 +26,7 @@ class TiledBackend(RTLBackend):
 
     @property
     def name(self) -> str:
-        return "tiled"
+        return "vanilla_tiled"
 
     @property
     def config_class(self) -> type:

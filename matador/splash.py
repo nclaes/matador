@@ -102,10 +102,10 @@ def _workspace_state() -> dict:
 
     # RTL backends may sit directly under /work or under /work/TMIR depending
     # on the output_dir used during generation.
-    state["rtl_tiled"]     = any((_WORK / p).exists() for p in
-                                  ["tiled/RTL", "TMIR/tiled/RTL"])
-    state["rtl_hardwired"] = any((_WORK / p).exists() for p in
-                                  ["hardwired/RTL", "TMIR/hardwired/RTL"])
+    state["rtl_vanilla_tiled"]     = any((_WORK / p).exists() for p in
+                                  ["vanilla_tiled/RTL", "TMIR/vanilla_tiled/RTL"])
+    state["rtl_vanilla_hardwired"] = any((_WORK / p).exists() for p in
+                                  ["vanilla_hardwired/RTL", "TMIR/vanilla_hardwired/RTL"])
 
     state["provenance"] = (
         _find_newest("TMIR/**/provenance_report.json") or
@@ -159,7 +159,7 @@ def _dm(state: dict) -> list[str]:
 
     has_cfg  = bool(state.get("training_config"))
     has_tmir = bool(state.get("tmir_npz") or state.get("tmir_yaml"))
-    has_rtl  = bool(state.get("rtl_tiled") or state.get("rtl_hardwired"))
+    has_rtl  = bool(state.get("rtl_vanilla_tiled") or state.get("rtl_vanilla_hardwired"))
     has_prov = bool(state.get("provenance"))
     val_cfg  = state.get("val_config")
     model    = state.get("tmir_npz") or state.get("tmir_yaml")
@@ -208,8 +208,8 @@ def _dm(state: dict) -> list[str]:
 
     # RTL
     backends = []
-    if state.get("rtl_tiled"):     backends.append("tiled")
-    if state.get("rtl_hardwired"): backends.append("hardwired")
+    if state.get("rtl_vanilla_tiled"):     backends.append("vanilla_tiled")
+    if state.get("rtl_vanilla_hardwired"): backends.append("vanilla_hardwired")
     if backends:
         lines.append(f"  {tick} RTL generated    {_DIM}{' + '.join(backends)}{_RESET}")
     else:
@@ -243,21 +243,22 @@ def _dm(state: dict) -> list[str]:
             ]
 
         if not has_rtl:
-            lines += [
-                f"  Generate RTL  {_DIM}(create /work/generate_config.yaml first){_RESET}:",
-                f"    {_CYAN}matador generate --config /work/generate_config.yaml{_RESET}",
-                "",
-            ]
+            from matador.backends.registry import list_backends as _lb, describe as _desc
+            lines.append(f"  Generate RTL  {_DIM}(copy a config template first){_RESET}:")
+            for bk in _lb():
+                lines.append(f"    {_CYAN}matador generate --backend {bk} --config /work/{bk}.yaml{_RESET}")
+                lines.append(f"    {_DIM}  cp examples/{bk}.yaml /work/{bk}.yaml{_RESET}")
+            lines.append("")
         else:
             for bk in backends:
                 lines += [
                     f"  Simulate RTL ({bk}):",
-                    f"    {_CYAN}matador simulate --backend {bk} --config /work/generate_config.yaml{_RESET}",
+                    f"    {_CYAN}matador simulate --backend {bk} --config /work/{bk}.yaml{_RESET}",
                     "",
                 ]
             lines += [
                 f"  Emulate (software, no simulator needed):",
-                f"    {_CYAN}matador emulate --backend {backends[0]} --config /work/generate_config.yaml --verify{_RESET}",
+                f"    {_CYAN}matador emulate --backend {backends[0]} --config /work/{backends[0]}.yaml --verify{_RESET}",
                 "",
             ]
 
@@ -289,6 +290,16 @@ def show_if_interactive() -> bool:
     # ── Bull ──────────────────────────────────────────────────────────────
     for line in _BULL.splitlines():
         print(f"{_GOLD}{line}{_RESET}")
+
+    # ── Registered backends (from registry — dynamic) ──────────────────────
+    try:
+        from matador.backends.registry import list_backends as _lb, describe as _desc
+        print(f"  {_DIM}Registered backends:{_RESET}")
+        for bk in _lb():
+            print(f"    {_CYAN}{bk:<22}{_RESET}  {_DIM}{_desc(bk)}{_RESET}")
+        print()
+    except Exception:
+        pass
 
     # ── DM guidance ───────────────────────────────────────────────────────
     for line in _dm(state):

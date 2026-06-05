@@ -50,7 +50,7 @@ class HardwiredBackend(RTLBackend):
 
     @property
     def name(self) -> str:
-        return "hardwired"
+        return "vanilla_hardwired"
 
     @property
     def config_class(self) -> type:

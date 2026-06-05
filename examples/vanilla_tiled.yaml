@@ -1,7 +1,7 @@
-# tiled.yaml — Tiled accelerator backend configuration
+# vanilla_tiled.yaml — Tiled accelerator backend configuration
 #
 # Usage:
-#   matador generate --backend tiled --config examples/tiled.yaml
+#   matador generate --backend vanilla_tiled --config examples/vanilla_tiled.yaml
 #
 # Architecture: sequential FSM iterates over (N_FEAT_SLICES × N_CLAUSE_SLICES)
 # tiles per inference, reading Include-action bits from an on-chip tile ROM

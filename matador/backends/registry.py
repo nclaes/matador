@@ -1,11 +1,15 @@
 """Backend registry — maps --backend flag values to backend classes.
 
+Backend naming convention:  <tm_variant>_<architecture>
+
+  vanilla_tiled      — vanilla TM, tiled FSM + tile ROM
+  vanilla_hardwired  — vanilla TM, HCB streaming + adder tree
+
+Future backends follow the same convention:
+  coalesced_tiled, weighted_hardwired, convolutional_tiled, …
+
 Backends are lazy-loaded on first use so importing the registry never
 triggers RTL-generator or emulator imports.
-
-Built-in backends:
-  tiled      — tiled feature-clause matrix (sequential FSM, tile ROM)
-  hardwired  — combinational AND-gate unrolling (adder tree, no ROM)  [Phase 2]
 """
 
 from __future__ import annotations
@@ -14,8 +18,14 @@ import importlib
 
 # name -> (module_path, class_name)  — loaded lazily
 _BACKENDS: dict[str, tuple[str, str]] = {
-    "tiled":     ("matador.backends.tiled.rtl",     "TiledBackend"),
-    "hardwired": ("matador.backends.hardwired.rtl", "HardwiredBackend"),
+    "vanilla_tiled":     ("matador.backends.tiled.rtl",     "TiledBackend"),
+    "vanilla_hardwired": ("matador.backends.hardwired.rtl", "HardwiredBackend"),
+}
+
+# Short one-line descriptions shown in list-backends and the splash screen
+_DESCRIPTIONS: dict[str, str] = {
+    "vanilla_tiled":     "Vanilla TM — sequential FSM + tile ROM. Knobs: feat_slice, clause_slice.",
+    "vanilla_hardwired": "Vanilla TM — HCB streaming + adder tree.  Knobs: pipeline_stages.",
 }
 
 
@@ -39,6 +49,11 @@ def get(name: str):
 def list_backends() -> list[str]:
     """Return sorted list of registered backend names."""
     return sorted(_BACKENDS.keys())
+
+
+def describe(name: str) -> str:
+    """Return the one-line description for a registered backend."""
+    return _DESCRIPTIONS.get(name, "")
 
 
 def config_class_for(name: str) -> type:
