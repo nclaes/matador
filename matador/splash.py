@@ -87,8 +87,10 @@ def _workspace_state() -> dict:
         return state
 
     state["training_config"] = _find_training_config()
+    # NPZ is always a model file; YAML must be TM_TMIR_* to avoid matching
+    # validation_config.yaml or accelerator_config.yaml in the TMIR directory.
     state["tmir_npz"]        = _find_newest("TMIR/*.npz")
-    state["tmir_yaml"]       = _find_newest("TMIR/*.yaml")
+    state["tmir_yaml"]       = _find_newest("TMIR/TM_TMIR_*.yaml")
     state["val_config"]      = _find_newest("TMIR/validation_config.yaml") or \
                                (_WORK / "validation_config.yaml").exists()
     state["rtl_tiled"]       = (_WORK / "tiled" / "RTL").exists()
@@ -128,12 +130,8 @@ _RESET = "\033[0m"
 
 
 def _dm(state: dict) -> list[str]:
-    """Return workspace-aware guidance lines. Goal: validated RTL."""
+    """Return workspace-aware guidance: full status summary + all available actions."""
     lines: list[str] = []
-
-    has_tmir     = bool(state.get("tmir_npz") or state.get("tmir_yaml"))
-    has_rtl      = bool(state.get("rtl_tiled") or state.get("rtl_hardwired"))
-    has_prov     = bool(state.get("provenance"))
 
     # ── No /work mounted ────────────────────────────────────────────────────
     if not state:
@@ -145,119 +143,118 @@ def _dm(state: dict) -> list[str]:
         ]
         return lines
 
-    # ── No training config and no model ─────────────────────────────────────
-    if not state.get("training_config") and not has_tmir:
+    has_cfg  = bool(state.get("training_config"))
+    has_tmir = bool(state.get("tmir_npz") or state.get("tmir_yaml"))
+    has_rtl  = bool(state.get("rtl_tiled") or state.get("rtl_hardwired"))
+    has_prov = bool(state.get("provenance"))
+    val_cfg  = state.get("val_config")
+    model    = state.get("tmir_npz") or state.get("tmir_yaml")
+    meta     = _read_model_meta(state) if has_tmir else {}
+
+    cfg = state.get("training_config")
+
+    # ── Nothing here at all ─────────────────────────────────────────────────
+    if not has_cfg and not has_tmir:
         lines += [
             f"{_GOLD}  Nothing here yet.{_RESET}",
             "",
-            f"  Set up your training configuration to begin the workflow:",
+            f"  Set up your training configuration to begin:",
             f"    {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}",
             "",
             f"  Edit it for your dataset and hyperparameters, then:",
             f"    {_CYAN}matador faena{_RESET}",
-            "",
-            f"  {_DIM}Goal: validated RTL under /work/tiled/RTL/{_RESET}",
         ]
         return lines
 
-    # ── Config ready, no model trained yet ──────────────────────────────────
-    if state.get("training_config") and not has_tmir:
-        cfg = state["training_config"]
+    # ── Status summary ───────────────────────────────────────────────────────
+    tick = f"{_GREEN}✓{_RESET}"
+    dash = f"{_DIM}–{_RESET}"
+
+    lines.append(f"  {'Status':}")
+    lines.append(f"  {'─' * 56}")
+
+    # Training config
+    if has_cfg:
+        lines.append(f"  {tick} training config  {_DIM}{cfg}{_RESET}")
+    else:
+        lines.append(f"  {dash} training config  {_DIM}not found{_RESET}")
+
+    # Trained model
+    if has_tmir and meta:
+        n_c  = meta.get("n_clauses_total", "?")
+        n_cls = meta.get("n_classes", "?")
+        n_f  = meta.get("n_features", "?")
+        fp   = meta.get("model_fingerprint", "")
+        fp_s = f"  …{fp[-12:]}" if fp else ""
+        lines.append(f"  {tick} model trained    {_DIM}{n_c} clauses · {n_cls} classes · {n_f} features{fp_s}{_RESET}")
+    elif has_tmir:
+        lines.append(f"  {tick} model trained    {_DIM}{model.name if model else 'TMIR/'}{_RESET}")
+    else:
+        lines.append(f"  {dash} model trained    {_DIM}not yet{_RESET}")
+
+    # RTL
+    backends = []
+    if state.get("rtl_tiled"):     backends.append("tiled")
+    if state.get("rtl_hardwired"): backends.append("hardwired")
+    if backends:
+        lines.append(f"  {tick} RTL generated    {_DIM}{' + '.join(backends)}{_RESET}")
+    else:
+        lines.append(f"  {dash} RTL generated    {_DIM}not yet{_RESET}")
+
+    # Provenance
+    if has_prov:
+        lines.append(f"  {tick} provenance       {_DIM}report filed{_RESET}")
+    else:
+        lines.append(f"  {dash} provenance       {_DIM}not yet{_RESET}")
+
+    lines.append("")
+
+    # ── Next actions (show everything applicable) ────────────────────────────
+    lines.append(f"  {'Available actions':}")
+    lines.append(f"  {'─' * 56}")
+
+    if has_cfg and not has_tmir:
         lines += [
-            f"{_GOLD}  Training configuration found.{_RESET}",
-            f"  {_DIM}{cfg}{_RESET}",
-            "",
-            f"  Train the Tsetlin Machine:",
+            f"  Train the model:",
             f"    {_CYAN}matador train --config {cfg}{_RESET}",
             "",
-            f"  {_DIM}Produces TMIR model + validation config + provenance script under /work/TMIR/{_RESET}",
         ]
-        return lines
 
-    # ── Model trained, no RTL yet ────────────────────────────────────────────
-    if has_tmir and not has_rtl:
-        meta  = _read_model_meta(state)
-        model = state.get("tmir_npz") or state.get("tmir_yaml")
-
-        if meta:
-            fp    = meta.get("model_fingerprint", "")
-            fp_id = f"…{fp[-16:]}" if fp else ""
-            n_c   = meta.get("n_clauses_total", "?")
-            n_cls = meta.get("n_classes", "?")
-            n_f   = meta.get("n_features", "?")
-            lines += [
-                f"{_GOLD}  Model trained.{_RESET}",
-                f"  {_DIM}{n_c} clauses · {n_cls} classes · {n_f} features · {fp_id}{_RESET}",
-            ]
-        else:
-            lines += [
-                f"{_GOLD}  Model trained.{_RESET}",
-                f"  {_DIM}{model}{_RESET}",
-            ]
-
-        val_cfg = state.get("val_config")
+    if has_tmir:
         if val_cfg and isinstance(val_cfg, Path):
             lines += [
-                "",
-                f"  Validate accuracy before generating RTL:",
+                f"  Validate model accuracy:",
                 f"    {_CYAN}matador validate --config {val_cfg}{_RESET}",
+                "",
             ]
 
-        lines += [
-            "",
-            f"  Generate RTL for all configured backends:",
-            f"    {_CYAN}matador generate --config /work/generate_config.yaml{_RESET}",
-            "",
-            f"  {_DIM}Writes to /work/tiled/RTL/ and /work/hardwired/RTL/{_RESET}",
-            f"  {_DIM}Goal: RTL testbenches passing under both backends{_RESET}",
-        ]
-        return lines
-
-    # ── RTL generated ────────────────────────────────────────────────────────
-    if has_tmir and has_rtl:
-        model  = state.get("tmir_npz") or state.get("tmir_yaml")
-        meta   = _read_model_meta(state)
-        backends = []
-        if state.get("rtl_tiled"):     backends.append("tiled")
-        if state.get("rtl_hardwired"): backends.append("hardwired")
-        bk_str = " + ".join(backends)
-
-        fp_id = ""
-        if meta:
-            fp = meta.get("model_fingerprint", "")
-            fp_id = f"  {_DIM}…{fp[-16:]}{_RESET}" if fp else ""
-
-        lines += [
-            f"{_GOLD}  RTL generated: {bk_str}.{_RESET}{fp_id}",
-            "",
-            f"  Run RTL testbenches to validate:",
-        ]
-        for bk in backends:
-            lines.append(
-                f"    {_CYAN}matador simulate --backend {bk} --config /work/generate_config.yaml{_RESET}"
-            )
-
-        if not has_prov and model:
+        if not has_rtl:
             lines += [
+                f"  Generate RTL  {_DIM}(create /work/generate_config.yaml first){_RESET}:",
+                f"    {_CYAN}matador generate --config /work/generate_config.yaml{_RESET}",
                 "",
-                f"  Verify inference parity with the ROM:",
-                f"    {_CYAN}matador provenance --model {model} --test-data /work/data/test.txt{_RESET}",
-            ]
-
-        if has_prov:
-            lines += [
-                "",
-                f"  {_GREEN}Provenance report written.{_RESET}",
-                f"  {_DIM}The workflow is complete when all testbenches pass and provenance is filed.{_RESET}",
             ]
         else:
+            for bk in backends:
+                lines += [
+                    f"  Simulate RTL ({bk}):",
+                    f"    {_CYAN}matador simulate --backend {bk} --config /work/generate_config.yaml{_RESET}",
+                    "",
+                ]
             lines += [
+                f"  Emulate (software, no simulator needed):",
+                f"    {_CYAN}matador emulate --backend {backends[0]} --config /work/generate_config.yaml --verify{_RESET}",
                 "",
-                f"  {_DIM}The workflow is complete when testbenches pass and provenance is filed.{_RESET}",
             ]
-        return lines
 
-    return [f"  {_DIM}Type 'matador --help' to see all commands.{_RESET}"]
+        if model and not has_prov:
+            lines += [
+                f"  Provenance report  {_DIM}(ROM-based inference over full test set){_RESET}:",
+                f"    {_CYAN}matador provenance --model {model} --test-data /work/data/test.txt{_RESET}",
+                "",
+            ]
+
+    return lines
 
 
 # ---------------------------------------------------------------------------
