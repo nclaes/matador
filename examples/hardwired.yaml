@@ -1,0 +1,68 @@
+# hardwired.yaml — Hardwired accelerator backend configuration
+#
+# Usage:
+#   matador generate --backend hardwired --config examples/hardwired.yaml
+#
+# Architecture
+# ------------
+# TA Include actions are unrolled directly into combinational AND-gate logic.
+# No tile ROM, no sequential clause-evaluation FSM.
+#
+# Each clause becomes a single assign statement:
+#   assign clause_fire_XXXX = feat[i] & feat[j] & (~feat[k]) & ...;
+#
+# A balanced binary adder tree then accumulates per-class scores:
+#   pos_sum[c] = sum of positive-polarity clause fires for class c
+#   neg_sum[c] = sum of negative-polarity clause fires for class c
+#   score[c]   = pos_sum[c] - neg_sum[c]
+#
+# FSM: S_IDLE → S_RECV (buffer feature beats) → S_EVAL (pipeline flush)
+#    → S_DONE (output predicted class over AXI-Stream)
+#
+# Latency: N_BEATS + pipeline_stages + ~4 cycles
+#
+# Trade-offs vs tiled backend
+# ---------------------------
+#   + Lower latency (no clause-slice loop)
+#   + Simpler datapath — no tile ROM address generation
+#   - LUT cost grows linearly with clause × feature count
+#   - Less area-efficient for large models (>1000 clauses)
+#
+# Prerequisites: a trained TMIR model at model_path (from `matador train`).
+
+# Path to the trained TMIR model file (.yaml or .npz).
+# The model produced by `matador train` is written to:
+#   <output_dir>/TMIR/TM_TMIR_Clauses_<N>_...yaml
+model_path: /work/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+
+# Root output directory. RTL is written to <output_dir>/RTL/.
+# Subdirectories created automatically:
+#   RTL/src/   — hw_tm_accelerator.v  axis_fifo.v
+#   RTL/tb/    — tb_hw_system.v
+#   RTL/sim/   — run_iverilog.sh  lint_verilator.sh
+output_dir: /work
+
+# AXI-Stream TDATA width in bits. Features are packed LSB-first.
+# Allowed: 32 or 64.
+axis_data_width: 32
+
+# Input FIFO depth in beats (must be a power of 2, minimum 4).
+# Decouples the AXI-Stream producer from the feature-capture FSM.
+fifo_depth: 16
+
+# pipeline_stages — register stages inserted in the clause-score adder tree.
+#
+#   0 = fully combinational
+#       Minimum latency. The long AND-chain + adder path may not meet timing
+#       at high clock frequencies (Vivado will warn about negative slack).
+#       Safe for simulation and low-frequency prototypes.
+#
+#   N = N pipeline register stages, evenly distributed across the tree.
+#       Improves Fmax at the cost of N additional clock cycles of latency.
+#       The FSM waits N cycles in S_EVAL before reading the score.
+#
+#   Recommended starting point: ceil(log2(n_clauses_per_class / 2))
+#   For a 400-clause vanilla model: ceil(log2(200)) = 8 stages (full pipeline)
+#   For a quick prototype:          3 stages (balanced latency / timing)
+#
+pipeline_stages: 3
