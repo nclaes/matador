@@ -87,16 +87,30 @@ def _workspace_state() -> dict:
         return state
 
     state["training_config"] = _find_training_config()
-    # NPZ is always a model file; YAML must be TM_TMIR_* to avoid matching
-    # validation_config.yaml or accelerator_config.yaml in the TMIR directory.
-    state["tmir_npz"]        = _find_newest("TMIR/*.npz")
-    state["tmir_yaml"]       = _find_newest("TMIR/TM_TMIR_*.yaml")
-    state["val_config"]      = _find_newest("TMIR/validation_config.yaml") or \
-                               (_WORK / "validation_config.yaml").exists()
-    state["rtl_tiled"]       = (_WORK / "tiled" / "RTL").exists()
-    state["rtl_hardwired"]   = (_WORK / "hardwired" / "RTL").exists()
-    state["provenance"]      = _find_newest("TMIR/provenance_report.json") or \
-                               _find_newest("provenance_report.json")
+
+    # Use ** recursive glob so files are found regardless of whether output_dir
+    # was /work (→ /work/TMIR/*.npz) or /work/TMIR (→ /work/TMIR/TMIR/*.npz).
+    # NPZ files are always model files; YAML must match TM_TMIR_* to avoid
+    # picking up validation_config.yaml or accelerator_config.yaml.
+    state["tmir_npz"]  = _find_newest("TMIR/**/*.npz")
+    state["tmir_yaml"] = _find_newest("TMIR/**/TM_TMIR_*.yaml")
+
+    state["val_config"] = (
+        _find_newest("TMIR/**/validation_config.yaml") or
+        (_WORK / "validation_config.yaml").exists()
+    )
+
+    # RTL backends may sit directly under /work or under /work/TMIR depending
+    # on the output_dir used during generation.
+    state["rtl_tiled"]     = any((_WORK / p).exists() for p in
+                                  ["tiled/RTL", "TMIR/tiled/RTL"])
+    state["rtl_hardwired"] = any((_WORK / p).exists() for p in
+                                  ["hardwired/RTL", "TMIR/hardwired/RTL"])
+
+    state["provenance"] = (
+        _find_newest("TMIR/**/provenance_report.json") or
+        _find_newest("provenance_report.json")
+    )
 
     return state
 
