@@ -46,5 +46,5 @@ matador simulate --backend vanilla_tiled --config /work/vanilla_tiled.yaml
 
 ## Contact
 
-Developed by Tousif Rahman and Gang Mao, Microsystems Group, Newcastle University.  
-Issues: tousifsrahman@gmail.com
+Developed by Tousif Rahman, Gang Mao, Bob Pattison, Sidharth Maheshwari, Marcos Sartori and Han Wu Microsystems Group, Newcastle University.  
+Issues: tousif.rahman@newcastle.ac.uk
