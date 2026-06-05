@@ -256,6 +256,27 @@ class TMAccelerator:
             return self.tmir.verification.test_vectors[:10]
         return []
 
+    @property
+    def _emu_traces(self):
+        """Lazily compute an InferenceTrace for each embedded test vector.
+
+        Returns list of (EvalVector, InferenceTrace) pairs, or [] when no
+        test vectors are embedded or the emulator package is not installed.
+        """
+        if hasattr(self, '_emu_traces_cache'):
+            return self._emu_traces_cache
+        tvs = self._get_test_vectors()
+        if not tvs:
+            self._emu_traces_cache = []
+            return self._emu_traces_cache
+        try:
+            from matador.emulator.accelerator import TMAcceleratorEmulator
+            emu = TMAcceleratorEmulator(self.tmir, self.cfg)
+            self._emu_traces_cache = [(tv, emu.run(tv.input)) for tv in tvs]
+        except Exception:
+            self._emu_traces_cache = []
+        return self._emu_traces_cache
+
     # ------------------------------------------------------------------
     # Source generators
     # ------------------------------------------------------------------
@@ -1246,263 +1267,440 @@ class TMAccelerator:
     # ------------------------------------------------------------------
 
     def _gen_tb_axis_fifo(self) -> str:
-        DW = self.axis_dw
-        return textwrap.dedent(f"""\
-        `timescale 1ns/1ps
-        // tb_axis_fifo — unit test: push 8 beats, verify order + tlast placement
-        module tb_axis_fifo;
-            parameter DATA_WIDTH = {DW};
-            parameter DEPTH      = 16;
+        DW  = self.axis_dw
+        HW  = (DW + 3) // 4   # hex digits per data word
 
-            reg                   clk, rst_n;
-            reg                   s_tvalid;
-            wire                  s_tready;
-            reg  [DATA_WIDTH-1:0] s_tdata;
-            reg                   s_tlast;
-            wire                  m_tvalid;
-            reg                   m_tready;
-            wire [DATA_WIDTH-1:0] m_tdata;
-            wire                  m_tlast;
+        # Build data-driven section: push+drain one test vector at a time so
+        # the FIFO (depth 16) never overflows even with large n_beats.
+        real_lines: list[str] = []
+        for t_idx, (tv, _trace) in enumerate(self._emu_traces):
+            beats = self._pack_beats(tv.input)
+            # Push all beats for this test vector
+            real_lines.append(f"        // tv{t_idx}: {len(beats)} beats")
+            real_lines.append("        m_tready = 0;")
+            for b_idx, data in enumerate(beats):
+                tl = "1'b1" if b_idx == len(beats) - 1 else "1'b0"
+                real_lines.append(
+                    f"        s_tvalid = 1; "
+                    f"s_tdata = {DW}'h{data:0{HW}X}; "
+                    f"s_tlast = {tl};"
+                )
+                real_lines.append(
+                    "        @(posedge clk); "
+                    "while (!s_tready) @(posedge clk);"
+                )
+            real_lines.append("        s_tvalid = 0; s_tlast = 0;")
+            # Drain and verify
+            real_lines.append("        m_tready = 1;")
+            for b_idx, data in enumerate(beats):
+                tlast_val = 1 if b_idx == len(beats) - 1 else 0
+                tl_exp    = "1'b1" if tlast_val else "1'b0"
+                real_lines.append(
+                    "        while (!m_tvalid) @(posedge clk);"
+                )
+                real_lines.append(
+                    f"        if (m_tdata !== {DW}'h{data:0{HW}X}) begin"
+                )
+                real_lines.append(
+                    f"            $display(\"FAIL tv{t_idx} beat{b_idx}: "
+                    f"exp={data:0{HW}X} got=%0h\", m_tdata); "
+                    f"fail_cnt = fail_cnt + 1;"
+                )
+                real_lines.append("        end")
+                real_lines.append(
+                    f"        if (m_tlast !== {tl_exp}) begin"
+                )
+                real_lines.append(
+                    f"            $display(\"FAIL tv{t_idx} beat{b_idx}: "
+                    f"tlast exp={tlast_val} got=%0b\", m_tlast); "
+                    f"fail_cnt = fail_cnt + 1;"
+                )
+                real_lines.append("        end")
+                real_lines.append("        @(posedge clk);")
+            real_lines.append("        m_tready = 0;")
 
-            axis_fifo #(.DATA_WIDTH(DATA_WIDTH), .DEPTH(DEPTH)) dut (
-                .clk(clk), .rst_n(rst_n),
-                .s_tvalid(s_tvalid), .s_tready(s_tready),
-                .s_tdata(s_tdata),   .s_tlast(s_tlast),
-                .m_tvalid(m_tvalid), .m_tready(m_tready),
-                .m_tdata(m_tdata),   .m_tlast(m_tlast)
-            );
+        real_block = "\n".join(real_lines)
+        if real_block:
+            real_block = (
+                "\n        // ── data-driven: real feature beats ──────────\n"
+                + real_block
+            )
 
-            initial clk = 0;
-            always #5 clk = ~clk;
-
-            integer fail_cnt, i;
-
-            initial begin
-                $dumpfile("tb_axis_fifo.vcd");
-                $dumpvars(0, tb_axis_fifo);
-                rst_n = 0; s_tvalid = 0; s_tdata = 0; s_tlast = 0; m_tready = 0;
-                repeat(4) @(posedge clk);
-                rst_n = 1; @(posedge clk);
-
-                for (i = 0; i < 8; i = i + 1) begin
-                    s_tvalid = 1;
-                    s_tdata  = i + 32'hA0;
-                    s_tlast  = (i == 7) ? 1'b1 : 1'b0;
-                    @(posedge clk);
-                    while (!s_tready) @(posedge clk);
-                end
-                s_tvalid = 0; s_tlast = 0;
-
-                fail_cnt = 0;
-                m_tready = 1;
-                for (i = 0; i < 8; i = i + 1) begin
-                    while (!m_tvalid) @(posedge clk);
-                    if (m_tdata !== (i + 32'hA0)) begin
-                        $display("FAIL beat %0d: exp=%0h got=%0h", i, i+32'hA0, m_tdata);
-                        fail_cnt = fail_cnt + 1;
-                    end
-                    if (m_tlast !== (i == 7 ? 1'b1 : 1'b0)) begin
-                        $display("FAIL beat %0d: tlast exp=%0b got=%0b", i, (i==7), m_tlast);
-                        fail_cnt = fail_cnt + 1;
-                    end
-                    @(posedge clk);
-                end
-
-                if (fail_cnt == 0) $display("tb_axis_fifo: ALL PASSED");
-                else               $display("tb_axis_fifo: FAILED (%0d errors)", fail_cnt);
-                $finish;
-            end
-        endmodule
-        """)
+        lines = [
+            "`timescale 1ns/1ps",
+            f"// tb_axis_fifo — unit test: 8 synthetic beats + real feature beats (N_BEATS={self.n_beats})",
+            "module tb_axis_fifo;",
+            f"    parameter DATA_WIDTH = {DW};",
+            "    parameter DEPTH      = 16;",
+            "",
+            "    reg                   clk, rst_n;",
+            "    reg                   s_tvalid;",
+            "    wire                  s_tready;",
+            f"    reg  [DATA_WIDTH-1:0] s_tdata;",
+            "    reg                   s_tlast;",
+            "    wire                  m_tvalid;",
+            "    reg                   m_tready;",
+            f"    wire [DATA_WIDTH-1:0] m_tdata;",
+            "    wire                  m_tlast;",
+            "",
+            "    axis_fifo #(.DATA_WIDTH(DATA_WIDTH), .DEPTH(DEPTH)) dut (",
+            "        .clk(clk), .rst_n(rst_n),",
+            "        .s_tvalid(s_tvalid), .s_tready(s_tready),",
+            "        .s_tdata(s_tdata),   .s_tlast(s_tlast),",
+            "        .m_tvalid(m_tvalid), .m_tready(m_tready),",
+            "        .m_tdata(m_tdata),   .m_tlast(m_tlast)",
+            "    );",
+            "",
+            "    initial clk = 0;",
+            "    always #5 clk = ~clk;",
+            "",
+            "    integer fail_cnt, i;",
+            "",
+            "    initial begin",
+            '        $dumpfile("tb_axis_fifo.vcd");',
+            "        $dumpvars(0, tb_axis_fifo);",
+            "        rst_n = 0; s_tvalid = 0; s_tdata = 0; s_tlast = 0; m_tready = 0;",
+            "        repeat(4) @(posedge clk);",
+            "        rst_n = 1; @(posedge clk);",
+            "",
+            "        // ── synthetic: 8-beat order + tlast check ────────────",
+            "        for (i = 0; i < 8; i = i + 1) begin",
+            "            s_tvalid = 1;",
+            f"            s_tdata  = i + {DW}'hA0;",
+            "            s_tlast  = (i == 7) ? 1'b1 : 1'b0;",
+            "            @(posedge clk);",
+            "            while (!s_tready) @(posedge clk);",
+            "        end",
+            "        s_tvalid = 0; s_tlast = 0;",
+            "",
+            "        fail_cnt = 0;",
+            "        m_tready = 1;",
+            "        for (i = 0; i < 8; i = i + 1) begin",
+            "            while (!m_tvalid) @(posedge clk);",
+            f"            if (m_tdata !== (i + {DW}'hA0)) begin",
+            '                $display("FAIL beat %0d: exp=%0h got=%0h", i, i+32\'hA0, m_tdata);',
+            "                fail_cnt = fail_cnt + 1;",
+            "            end",
+            "            if (m_tlast !== (i == 7 ? 1'b1 : 1'b0)) begin",
+            '                $display("FAIL beat %0d: tlast exp=%0b got=%0b", i, (i==7), m_tlast);',
+            "                fail_cnt = fail_cnt + 1;",
+            "            end",
+            "            @(posedge clk);",
+            "        end",
+            "        m_tready = 0;",
+            real_block,
+            "",
+            "        if (fail_cnt == 0) $display(\"tb_axis_fifo: ALL PASSED\");",
+            "        else               $display(\"tb_axis_fifo: FAILED (%0d errors)\", fail_cnt);",
+            "        $finish;",
+            "    end",
+            "endmodule",
+        ]
+        return "\n".join(lines) + "\n"
 
     def _gen_tb_clause_eval(self) -> str:
-        L = 2 * self.feat_slice   # clause_eval instantiated with 2*FEAT_SLICE literals
-        return textwrap.dedent(f"""\
-        `timescale 1ns/1ps
-        // tb_clause_eval — unit test: known-answer evaluation with tile literal width
-        // N_LITERALS = 2*FEAT_SLICE = {L}
-        module tb_clause_eval;
-            parameter N_LITERALS = {L};
+        L  = 2 * self.feat_slice   # clause_eval instantiated with 2*FEAT_SLICE literals
+        HW = (L + 3) // 4          # hex digits for an L-bit literal
 
-            reg  [N_LITERALS-1:0] literals;
-            reg  [N_LITERALS-1:0] ta_action_mask;
-            wire                  active;
+        # Data-driven cases: test vector 0, clause 0, every feat-slice column.
+        # Each ClausePartialEvalEvent for clause_global==0 is one independent
+        # invocation of clause_eval — the exact inputs the RTL sees each cycle.
+        real_lines: list[str] = []
+        traces = self._emu_traces
+        if traces:
+            _, trace = traces[0]
+            events = [e for e in trace.clause_partial_events if e.clause_global == 0]
+            if events:
+                real_lines.append(
+                    "        // ── data-driven: test0, clause 0, "
+                    f"all {len(events)} feat-slice columns ──────"
+                )
+                for i, ev in enumerate(events):
+                    exp = "1'b1" if ev.partial_pass else "1'b0"
+                    real_lines.append(
+                        f"        check({L}'h{ev.partial_literals:0{HW}X}, "
+                        f"{L}'h{ev.ta_action_mask:0{HW}X}, "
+                        f"{exp}, {100 + i}); "
+                        f"// feat_slice {ev.feat_slice_idx}"
+                    )
 
-            clause_eval #(.N_LITERALS(N_LITERALS)) dut (
-                .literals(literals), .ta_action_mask(ta_action_mask), .active(active)
-            );
+        real_block = "\n".join(real_lines)
+        if real_block:
+            real_block = "\n" + real_block
 
-            integer fail_cnt;
-
-            task check;
-                input [N_LITERALS-1:0] lit;
-                input [N_LITERALS-1:0] inc;
-                input                  exp;
-                input [63:0]           id;
-                begin
-                    literals       = lit;
-                    ta_action_mask = inc;
-                    #1;
-                    if (active !== exp) begin
-                        $display("FAIL test%0d: lit=%b inc=%b exp=%b got=%b", id, lit, inc, exp, active);
-                        fail_cnt = fail_cnt + 1;
-                    end
-                end
-            endtask
-
-            initial begin
-                $dumpfile("tb_clause_eval.vcd");
-                $dumpvars(0, tb_clause_eval);
-                fail_cnt = 0;
-
-                check({L}'b0,             {L}'b0,             1'b0, 0); // empty → inactive
-                check({L}'b1,             {L}'b1,             1'b1, 1); // single inc, lit=1 → active
-                check({L}'b0,             {L}'b1,             1'b0, 2); // single inc, lit=0 → inactive
-                check({{{L}{{1'b1}}}},    {{{L}{{1'b1}}}},   1'b1, 3); // all inc, all lit=1 → active
-                check({{{L}{{1'b1}}}} & ~{L}'b1, {{{L}{{1'b1}}}}, 1'b0, 4); // one miss → inactive
-                // Non-included bits are don't-care: lit=0 but inc=0 should still pass
-                check({{{L}{{1'b0}}}},    {{{L}{{1'b0}}}},   1'b0, 5); // empty stays inactive
-
-                if (fail_cnt == 0) $display("tb_clause_eval: ALL PASSED");
-                else               $display("tb_clause_eval: FAILED (%0d errors)", fail_cnt);
-                $finish;
-            end
-        endmodule
-        """)
+        lines = [
+            "`timescale 1ns/1ps",
+            f"// tb_clause_eval — unit test: known-answer + data-driven (N_LITERALS={L})",
+            "module tb_clause_eval;",
+            f"    parameter N_LITERALS = {L};",
+            "",
+            "    reg  [N_LITERALS-1:0] literals;",
+            "    reg  [N_LITERALS-1:0] ta_action_mask;",
+            "    wire                  active;",
+            "",
+            "    clause_eval #(.N_LITERALS(N_LITERALS)) dut (",
+            "        .literals(literals), .ta_action_mask(ta_action_mask), .active(active)",
+            "    );",
+            "",
+            "    integer fail_cnt;",
+            "",
+            "    task check;",
+            "        input [N_LITERALS-1:0] lit;",
+            "        input [N_LITERALS-1:0] inc;",
+            "        input                  exp;",
+            "        input [63:0]           id;",
+            "        begin",
+            "            literals       = lit;",
+            "            ta_action_mask = inc;",
+            "            #1;",
+            "            if (active !== exp) begin",
+            '                $display("FAIL test%0d: lit=%h inc=%h exp=%b got=%b", id, lit, inc, exp, active);',
+            "                fail_cnt = fail_cnt + 1;",
+            "            end",
+            "        end",
+            "    endtask",
+            "",
+            "    initial begin",
+            '        $dumpfile("tb_clause_eval.vcd");',
+            "        $dumpvars(0, tb_clause_eval);",
+            "        fail_cnt = 0;",
+            "",
+            "        // ── synthetic corner cases ────────────────────────────",
+            f"        check({L}'b0,          {L}'b0,          1'b0, 0); // empty → inactive",
+            f"        check({L}'b1,          {L}'b1,          1'b1, 1); // single inc, lit=1 → active",
+            f"        check({L}'b0,          {L}'b1,          1'b0, 2); // single inc, lit=0 → inactive",
+            f"        check({{{L}{{1'b1}}}}, {{{L}{{1'b1}}}}, 1'b1, 3); // all inc, all lit=1",
+            f"        check({{{L}{{1'b1}}}} & ~{L}'b1, {{{L}{{1'b1}}}}, 1'b0, 4); // one miss → inactive",
+            f"        check({{{L}{{1'b0}}}}, {{{L}{{1'b0}}}}, 1'b0, 5); // all exclude → inactive",
+            real_block,
+            "",
+            '        if (fail_cnt == 0) $display("tb_clause_eval: ALL PASSED");',
+            '        else               $display("tb_clause_eval: FAILED (%0d errors)", fail_cnt);',
+            "        $finish;",
+            "    end",
+            "endmodule",
+        ]
+        return "\n".join(lines) + "\n"
 
     def _gen_tb_score_acc(self) -> str:
         C  = self.n_classes
         T  = self.threshold
         SW = self.score_width
         CW = max(1, int(math.ceil(math.log2(max(C, 2)))))
-        return textwrap.dedent(f"""\
-        `timescale 1ns/1ps
-        // tb_score_acc — unit test: accumulation, clamping, and clear
-        module tb_score_acc;
-            parameter N_CLASSES   = {C};
-            parameter THRESHOLD   = {T};
-            parameter SCORE_WIDTH = {SW};
 
-            reg                              clk, rst_n;
-            reg                              clear, valid, polarity, active;
-            reg  [{CW}-1:0]                  cls;
-            wire [SCORE_WIDTH*N_CLASSES-1:0] scores_flat;
+        # Data-driven section: replay all score-accumulator votes from test 0.
+        # After all votes, compare scores_flat against the emulator ground truth.
+        emu_lines: list[str] = []
+        traces = self._emu_traces
+        if traces:
+            _, trace = traces[0]
+            votes = trace.score_vote_events
+            if votes and trace.argmax_event is not None:
+                emu_lines.append(
+                    f"        // ── data-driven: {len(votes)} clause votes from test 0 ──────"
+                )
+                emu_lines.append(
+                    "        clear = 1; @(posedge clk); clear = 0; @(posedge clk);"
+                )
+                for ev in votes:
+                    pol = "1" if ev.polarity == "positive" else "0"
+                    act = "1" if ev.clause_active else "0"
+                    emu_lines.append(
+                        f"        valid = 1; "
+                        f"cls = {CW}'d{ev.class_idx}; "
+                        f"polarity = 1'b{pol}; "
+                        f"active = 1'b{act}; "
+                        "@(posedge clk);"
+                    )
+                emu_lines.append("        valid = 0; @(posedge clk);")
+                # Pack expected scores_flat (two's complement per slice)
+                exp_scores = trace.argmax_event.scores
+                flat_val = 0
+                for c, s in enumerate(exp_scores):
+                    flat_val |= (s & ((1 << SW) - 1)) << (c * SW)
+                hw = (SW * C + 3) // 4
+                emu_lines.append(
+                    f"        if (scores_flat !== {SW*C}'h{flat_val:0{hw}X}) begin"
+                )
+                emu_lines.append(
+                    f"            $display(\"FAIL data-driven: "
+                    f"exp={SW*C}'h{flat_val:0{hw}X} got=%0h\", scores_flat);"
+                )
+                emu_lines.append(
+                    "            fail_cnt = fail_cnt + 1;"
+                )
+                emu_lines.append("        end")
 
-            score_acc #(
-                .N_CLASSES(N_CLASSES), .THRESHOLD(THRESHOLD), .SCORE_WIDTH(SCORE_WIDTH)
-            ) dut (
-                .clk(clk), .rst_n(rst_n), .clear(clear),
-                .valid(valid), .cls(cls), .polarity(polarity),
-                .active(active), .scores_flat(scores_flat)
-            );
+        emu_block = "\n".join(emu_lines)
+        if emu_block:
+            emu_block = "\n" + emu_block
 
-            initial clk = 0;
-            always #5 clk = ~clk;
-
-            function signed [SCORE_WIDTH-1:0] score_of;
-                input integer c;
-                begin score_of = scores_flat[c*SCORE_WIDTH +: SCORE_WIDTH]; end
-            endfunction
-
-            integer fail_cnt, i;
-
-            initial begin
-                $dumpfile("tb_score_acc.vcd");
-                $dumpvars(0, tb_score_acc);
-                fail_cnt = 0;
-                clear = 0; valid = 0; polarity = 0; active = 0; cls = 0;
-                rst_n = 0; repeat(4) @(posedge clk);
-                rst_n = 1; @(posedge clk);
-
-                // Accumulate THRESHOLD+2 positive votes; score must clamp at +T
-                for (i = 0; i < THRESHOLD + 2; i = i + 1) begin
-                    valid = 1; cls = 0; polarity = 1; active = 1; @(posedge clk);
-                end
-                valid = 0; @(posedge clk);
-                if ($signed(score_of(0)) !== $signed({SW}'d{T})) begin
-                    $display("FAIL clamp+: exp=%0d got=%0d", {T}, $signed(score_of(0)));
-                    fail_cnt = fail_cnt + 1;
-                end
-
-                // Accumulate THRESHOLD+2 negative votes; score must clamp at -T
-                for (i = 0; i < THRESHOLD + 2; i = i + 1) begin
-                    valid = 1; cls = 0; polarity = 0; active = 1; @(posedge clk);
-                end
-                valid = 0; @(posedge clk);
-                if ($signed(score_of(0)) !== -$signed({SW}'d{T})) begin
-                    $display("FAIL clamp-: exp=%0d got=%0d", -{T}, $signed(score_of(0)));
-                    fail_cnt = fail_cnt + 1;
-                end
-
-                // Inactive clause must not change score
-                valid = 1; cls = 0; polarity = 1; active = 0; @(posedge clk);
-                valid = 0; @(posedge clk);
-                if ($signed(score_of(0)) !== -$signed({SW}'d{T})) begin
-                    $display("FAIL inactive: score changed unexpectedly");
-                    fail_cnt = fail_cnt + 1;
-                end
-
-                // Clear resets to 0
-                clear = 1; @(posedge clk); clear = 0; @(posedge clk);
-                if ($signed(score_of(0)) !== 0) begin
-                    $display("FAIL clear: exp=0 got=%0d", $signed(score_of(0)));
-                    fail_cnt = fail_cnt + 1;
-                end
-
-                if (fail_cnt == 0) $display("tb_score_acc: ALL PASSED");
-                else               $display("tb_score_acc: FAILED (%0d errors)", fail_cnt);
-                $finish;
-            end
-        endmodule
-        """)
+        lines = [
+            "`timescale 1ns/1ps",
+            "// tb_score_acc — unit test: accumulation, clamping, clear, data-driven vote replay",
+            "module tb_score_acc;",
+            f"    parameter N_CLASSES   = {C};",
+            f"    parameter THRESHOLD   = {T};",
+            f"    parameter SCORE_WIDTH = {SW};",
+            "",
+            "    reg                              clk, rst_n;",
+            "    reg                              clear, valid, polarity, active;",
+            f"    reg  [{CW}-1:0]                  cls;",
+            "    wire [SCORE_WIDTH*N_CLASSES-1:0] scores_flat;",
+            "",
+            "    score_acc #(",
+            "        .N_CLASSES(N_CLASSES), .THRESHOLD(THRESHOLD), .SCORE_WIDTH(SCORE_WIDTH)",
+            "    ) dut (",
+            "        .clk(clk), .rst_n(rst_n), .clear(clear),",
+            "        .valid(valid), .cls(cls), .polarity(polarity),",
+            "        .active(active), .scores_flat(scores_flat)",
+            "    );",
+            "",
+            "    initial clk = 0;",
+            "    always #5 clk = ~clk;",
+            "",
+            "    function signed [SCORE_WIDTH-1:0] score_of;",
+            "        input integer c;",
+            "        begin score_of = scores_flat[c*SCORE_WIDTH +: SCORE_WIDTH]; end",
+            "    endfunction",
+            "",
+            "    integer fail_cnt, i;",
+            "",
+            "    initial begin",
+            '        $dumpfile("tb_score_acc.vcd");',
+            "        $dumpvars(0, tb_score_acc);",
+            "        fail_cnt = 0;",
+            "        clear = 0; valid = 0; polarity = 0; active = 0; cls = 0;",
+            "        rst_n = 0; repeat(4) @(posedge clk);",
+            "        rst_n = 1; @(posedge clk);",
+            "",
+            "        // ── synthetic: clamp +T ─────────────────────────────",
+            "        for (i = 0; i < THRESHOLD + 2; i = i + 1) begin",
+            "            valid = 1; cls = 0; polarity = 1; active = 1; @(posedge clk);",
+            "        end",
+            "        valid = 0; @(posedge clk);",
+            f"        if ($signed(score_of(0)) !== $signed({SW}'d{T})) begin",
+            f'            $display("FAIL clamp+: exp=%0d got=%0d", {T}, $signed(score_of(0)));',
+            "            fail_cnt = fail_cnt + 1;",
+            "        end",
+            "",
+            "        // ── synthetic: clamp -T (start fresh from 0) ───────────",
+            "        clear = 1; @(posedge clk); clear = 0; @(posedge clk);",
+            "        for (i = 0; i < THRESHOLD + 2; i = i + 1) begin",
+            "            valid = 1; cls = 0; polarity = 0; active = 1; @(posedge clk);",
+            "        end",
+            "        valid = 0; @(posedge clk);",
+            f"        if ($signed(score_of(0)) !== -$signed({SW}'d{T})) begin",
+            f'            $display("FAIL clamp-: exp=%0d got=%0d", -{T}, $signed(score_of(0)));',
+            "            fail_cnt = fail_cnt + 1;",
+            "        end",
+            "",
+            "        // ── synthetic: inactive clause does not change score ─",
+            "        valid = 1; cls = 0; polarity = 1; active = 0; @(posedge clk);",
+            "        valid = 0; @(posedge clk);",
+            f"        if ($signed(score_of(0)) !== -$signed({SW}'d{T})) begin",
+            '            $display("FAIL inactive: score changed unexpectedly");',
+            "            fail_cnt = fail_cnt + 1;",
+            "        end",
+            "",
+            "        // ── synthetic: clear resets all scores to 0 ─────────",
+            "        clear = 1; @(posedge clk); clear = 0; @(posedge clk);",
+            "        if ($signed(score_of(0)) !== 0) begin",
+            '            $display("FAIL clear: exp=0 got=%0d", $signed(score_of(0)));',
+            "            fail_cnt = fail_cnt + 1;",
+            "        end",
+            emu_block,
+            "",
+            '        if (fail_cnt == 0) $display("tb_score_acc: ALL PASSED");',
+            '        else               $display("tb_score_acc: FAILED (%0d errors)", fail_cnt);',
+            "        $finish;",
+            "    end",
+            "endmodule",
+        ]
+        return "\n".join(lines) + "\n"
 
     def _gen_tb_argmax(self) -> str:
-        C  = self.n_classes
-        SW = self.score_width
-        CW = self.class_width
-        cases = ""
+        C   = self.n_classes
+        SW  = self.score_width
+        CW  = self.class_width
+        HW  = (SW * C + 3) // 4   # hex digits for scores_flat
+
+        case_lines: list[str] = []
+
+        # Synthetic: one winner per class index (all others = 0, winner = 2)
+        case_lines.append("        // ── synthetic: one winner per class index ────────")
         for winner in range(C):
-            scores_hex = 0
+            flat = 0
             for c in range(C):
                 val = 2 if c == winner else 0
-                scores_hex |= (val & ((1 << SW) - 1)) << (c * SW)
-            hex_w = (SW * C + 3) // 4
-            cases += (
-                f"                scores_flat = {SW * C}'h{scores_hex:0{hex_w}X}; #1;\n"
-                f"                if (pred_class !== {winner}) begin\n"
-                f"                    $display(\"FAIL case{winner}: exp={winner} got=%0d\", pred_class);\n"
-                f"                    fail_cnt = fail_cnt + 1;\n"
-                f"                end\n"
+                flat |= (val & ((1 << SW) - 1)) << (c * SW)
+            case_lines.append(
+                f"        scores_flat = {SW*C}'h{flat:0{HW}X}; #1;"
             )
-        return textwrap.dedent(f"""\
-        `timescale 1ns/1ps
-        // tb_argmax — unit test: one winner per class position
-        module tb_argmax;
-            parameter N_CLASSES   = {C};
-            parameter SCORE_WIDTH = {SW};
-            parameter CLASS_WIDTH = {CW};
+            case_lines.append(f"        if (pred_class !== {winner}) begin")
+            case_lines.append(
+                f"            $display(\"FAIL synth{winner}: exp={winner} got=%0d\", pred_class); "
+                f"fail_cnt = fail_cnt + 1;"
+            )
+            case_lines.append("        end")
 
-            reg  [SCORE_WIDTH*N_CLASSES-1:0] scores_flat;
-            wire [CLASS_WIDTH-1:0]            pred_class;
+        # Data-driven: real score vectors from all embedded test vectors
+        traces = self._emu_traces
+        if traces:
+            case_lines.append(
+                f"\n        // ── data-driven: {len(traces)} embedded test vectors ────────"
+            )
+            for t_idx, (tv, trace) in enumerate(traces):
+                if trace.argmax_event is None:
+                    continue
+                flat = 0
+                for c, s in enumerate(trace.argmax_event.scores):
+                    flat |= (s & ((1 << SW) - 1)) << (c * SW)
+                exp = trace.argmax_event.predicted_class
+                case_lines.append(
+                    f"        scores_flat = {SW*C}'h{flat:0{HW}X}; #1; // tv{t_idx}"
+                )
+                case_lines.append(f"        if (pred_class !== {exp}) begin")
+                case_lines.append(
+                    f"            $display(\"FAIL tv{t_idx}: exp={exp} got=%0d\", pred_class); "
+                    f"fail_cnt = fail_cnt + 1;"
+                )
+                case_lines.append("        end")
 
-            argmax #(.N_CLASSES(N_CLASSES), .SCORE_WIDTH(SCORE_WIDTH),
-                     .CLASS_WIDTH(CLASS_WIDTH)) dut (
-                .scores_flat(scores_flat), .pred_class(pred_class)
-            );
+        cases = "\n".join(case_lines)
 
-            integer fail_cnt;
-
-            initial begin
-                $dumpfile("tb_argmax.vcd");
-                $dumpvars(0, tb_argmax);
-                fail_cnt = 0;
-        {cases}
-                if (fail_cnt == 0) $display("tb_argmax: ALL PASSED");
-                else               $display("tb_argmax: FAILED (%0d errors)", fail_cnt);
-                $finish;
-            end
-        endmodule
-        """)
+        lines = [
+            "`timescale 1ns/1ps",
+            "// tb_argmax — unit test: one winner per class + data-driven score vectors",
+            "module tb_argmax;",
+            f"    parameter N_CLASSES   = {C};",
+            f"    parameter SCORE_WIDTH = {SW};",
+            f"    parameter CLASS_WIDTH = {CW};",
+            "",
+            "    reg  [SCORE_WIDTH*N_CLASSES-1:0] scores_flat;",
+            "    wire [CLASS_WIDTH-1:0]            pred_class;",
+            "",
+            "    argmax #(.N_CLASSES(N_CLASSES), .SCORE_WIDTH(SCORE_WIDTH),",
+            "             .CLASS_WIDTH(CLASS_WIDTH)) dut (",
+            "        .scores_flat(scores_flat), .pred_class(pred_class)",
+            "    );",
+            "",
+            "    integer fail_cnt;",
+            "",
+            "    initial begin",
+            '        $dumpfile("tb_argmax.vcd");',
+            "        $dumpvars(0, tb_argmax);",
+            "        fail_cnt = 0;",
+            "",
+            cases,
+            "",
+            '        if (fail_cnt == 0) $display("tb_argmax: ALL PASSED");',
+            '        else               $display("tb_argmax: FAILED (%0d errors)", fail_cnt);',
+            "        $finish;",
+            "    end",
+            "endmodule",
+        ]
+        return "\n".join(lines) + "\n"
 
     def _gen_tb_system(self) -> str:
         N   = self.n_features
