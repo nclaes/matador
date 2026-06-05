@@ -765,6 +765,25 @@ def provenance(model_path: Path, test_data_path: Path, output_path: Path) -> Non
     click.echo(f"Provenance report written to:\n  {output_path}")
 
 
+@main.command("status")
+def status() -> None:
+    """Show workspace status and available next actions.
+
+    Reads /work/ and reports which pipeline stages are complete,
+    then lists every command that is applicable right now.
+
+    Works in non-interactive mode (scripts, CI, piped output).
+    """
+    from matador.splash import _dm, _workspace_state
+    state = _workspace_state()
+    for line in _dm(state):
+        # Strip ANSI codes when output is not a TTY
+        if not sys.stdout.isatty():
+            import re as _re
+            line = _re.sub(r"\033\[[0-9;]*m", "", line)
+        click.echo(line)
+
+
 @main.command()
 def version() -> None:
     """Print the Matador version."""
