@@ -79,3 +79,5 @@ tmu/tmulib*.c
 # Matador runtime-generated configs (contain user-specific paths)
 # =============================================================================
 accel_config.json
+.python-version
+matador/templates/
