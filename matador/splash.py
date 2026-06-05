@@ -12,49 +12,34 @@ from pathlib import Path
 from matador import __version__
 
 # ---------------------------------------------------------------------------
-# ASCII art
-# ---------------------------------------------------------------------------
-
-_LOGO = r"""
-     __  __       _       _____      _       ____      ___      ____
-    |  \/  |     / \     |_   _|    / \     |  _ \    / _ \    |  _ \
-    | \  / |    / _ \      | |     / _ \    | | | |  | | | |   | |_) |
-    | |\/| |   / ___ \     | |    / ___ \   | |_| |  | |_| |   |  _ <
-    |_|  |_|  /_/   \_\    |_|   /_/   \_\  |____/    \___/    |_| \_\
-
-"""
-
-# ---------------------------------------------------------------------------
 # ASCII bull
 # ---------------------------------------------------------------------------
 
 _BULL = r""" 
-                                            ////____\\\
-                                        ///////      \\\\\\
-        ///\\\                        /|//               \\\
-    /_/////\\\\                      //|/                  \\\\\\
-    /||||||    ||||                  /|//                       \\\\\\
-    ||||||||   |||                   //||                             \\\\
-    |||\//    ||||               //////                                 \\\
-            |||              //_////                                    ||||       ||
-        |||||     //_//___//                                      ////|||\    /|||
-        |||||||/////_/                                         ||//     \\\__|||||
-            \||||/                                               ||             |//
-            |||                                                   \|  ||||||/_//
-            |||                                                       ||| ||
-            ||||                                             |||       |__ ||
-            ||                               \\         |||  |||           ||
-            ||             /|\               ||\        ||  //|\\\         ||
-        ////|            ||||_____\||\/____|||||\      ||||||   \||||\   /||||
-        |////         /_//||||/      |||//______/|\\     ||| |||   || |\\_/////
-        ||    //_///_//_// ||     |////_            \\\  |||||||  /||
-    |||  ////_//        ||\\   |||                \\\|  ||   |//
-    /|| |//               \\\\\||||                  \\\  |||///
-    /// |||                    ||||||\                  \\|/||||
-    |||  |||                     ||    ||\                |||   ||\
-    ||\\//||\___________________/||\__/|||\______________/||\__/||\\_
+                                                                                                                                                                                                            
+                                $$@$@$$@                              
+                            >$$$$@@$@$$$$$@                           
+                        $$$$@$$@@$@$$@$$$@$.                        
+                        @$$@$$$$$$@@$@$$$$$$@@$$a                      
+                    $$@@$@$$$$$$@@$@$$$$$$@@$$@$$$@$$$$$%            
+                \$$$$@@$@$$$$$$@@$@$$$$$$@@$$$$*$@      '           
+                $$$$$$$@@$$$$$$$$@@$@$$$$$$@@$@$$$$ %@Bx              
+    @        @$$$@$$@$$$@@$$$$$$$$@@$@$$$@$$@@$@$$$                    
+    p$$$$@a  $$@$$$$$$$@$$$$$$$$@@$@$$@   @@$@$$                     
+            @@@$@$$$$@$@@$@$$$$$$@@$@$$$    @$@$.                     
+            $$@@$@$$$$$$B       Q@@$$@$$$$                             
+        @$$@@$@$@                 B$$$$$$.                          
+        $@$@$@                       @$$$                           
+        $$$$                     W$$$$@$                             
+        ]$$                      $$$@$                                
+        @                                                             
+                                                                                                
+    MATADOR                                                                                                                           
+    Automated RTL Accelerator Generator for Tsetlin Machines
 
-    MATADOR: Automated RTL Accelerator Generator for Tsetlin Machines
+    Microsystems Group
+    Newcastle University
+    ----------------------------------------------------------     
 
 """
 
@@ -70,6 +55,30 @@ def _find_newest(pattern: str) -> Path | None:
     return matches[0] if matches else None
 
 
+def _find_training_config() -> Path | None:
+    """Return the training config file if one exists, regardless of filename.
+
+    Checks common names first, then falls back to any YAML in /work/ root
+    that contains the 'tm_type' field (unique to training configs).
+    """
+    # Common explicit names
+    for name in ("training_config.yaml", "training_config.yml",
+                 "training.yaml", "training.yml"):
+        p = _WORK / name
+        if p.exists():
+            return p
+
+    # Last resort: scan for any root-level YAML with a tm_type key
+    for p in _WORK.glob("*.yaml"):
+        try:
+            if "tm_type" in p.read_text():
+                return p
+        except Exception:
+            pass
+
+    return None
+
+
 def _workspace_state() -> dict:
     """Inspect /work and return a dict of what has been produced."""
     state: dict = {}
@@ -77,7 +86,7 @@ def _workspace_state() -> dict:
     if not _WORK.exists():
         return state
 
-    state["training_config"] = (_WORK / "training_config.yaml").exists()
+    state["training_config"] = _find_training_config()
     state["tmir_npz"]        = _find_newest("TMIR/*.npz")
     state["tmir_yaml"]       = _find_newest("TMIR/*.yaml")
     state["val_config"]      = _find_newest("TMIR/validation_config.yaml") or \
@@ -153,12 +162,13 @@ def _dm(state: dict) -> list[str]:
 
     # ── Config ready, no model trained yet ──────────────────────────────────
     if state.get("training_config") and not has_tmir:
+        cfg = state["training_config"]
         lines += [
             f"{_GOLD}  Training configuration found.{_RESET}",
-            f"  {_DIM}/work/training_config.yaml{_RESET}",
+            f"  {_DIM}{cfg}{_RESET}",
             "",
             f"  Train the Tsetlin Machine:",
-            f"    {_CYAN}matador train --config /work/training_config.yaml{_RESET}",
+            f"    {_CYAN}matador train --config {cfg}{_RESET}",
             "",
             f"  {_DIM}Produces TMIR model + validation config + provenance script under /work/TMIR/{_RESET}",
         ]
@@ -267,7 +277,7 @@ def show_if_interactive() -> bool:
 
     # ── Bull ──────────────────────────────────────────────────────────────
     for line in _BULL.splitlines():
-        print(f"{_RED}{line}{_RESET}")
+        print(f"{_GOLD}{line}{_RESET}")
 
     # ── DM guidance ───────────────────────────────────────────────────────
     for line in _dm(state):
