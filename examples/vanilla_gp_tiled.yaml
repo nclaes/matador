@@ -1,0 +1,67 @@
+# vanilla_gp_tiled.yaml — Runtime-reprogrammable GP-tiled backend configuration
+#
+# Usage:
+#   matador generate --backend vanilla_gp_tiled --config examples/vanilla_gp_tiled.yaml
+#
+# Architecture
+# ------------
+# Vendored from GP_TM_Inference_Accelerator (tm_accel_gp.v): the same tiled
+# FSM as vanilla_tiled, but the tile ROM is a runtime-writable BRAM. Unlike
+# vanilla_tiled/vanilla_hardwired, RTL is generated ONCE per capacity below —
+# swapping to a different (smaller-or-equal) trained model does not require
+# resynthesis, only a new AXI-Stream CMD_LOAD packet at runtime (see
+# RTL/src/tm_accel_gp.v's header comment for the wire protocol).
+#
+# Prerequisites: a trained TMIR model at model_path (from `matador train`).
+
+# Path to the trained TMIR model file (.yaml or .npz). Only used to build the
+# CMD_LOAD artifact and the model-specific verification testbench — it does
+# not change the generated RTL's capacity/datapath.
+model_path: /work/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+
+# Root output directory. RTL is written to <output_dir>/RTL/.
+# Subdirectories created automatically:
+#   RTL/src/   — tm_accel_gp.v  tile_mem.v  score_acc_rt.v  argmax_rt.v  clause_eval.v  axis_fifo.v
+#   RTL/tb/    — tb_system_gp.v (generic protocol suite) + tb_system_gp_model.v (this model)
+#   RTL/sim/   — run_iverilog.sh  waves.sh  *.memh vectors
+output_dir: /work
+
+# AXI-Stream TDATA width in bits. Only 32 is currently supported — the
+# vendored golden model (tm_emulator.py) hardcodes a 32-bit packet layout.
+axis_data_width: 32
+
+# Input FIFO depth in beats (must be a power of 2, minimum 4).
+fifo_depth: 16
+
+# ── target device ───────────────────────────────────────────────────────
+# The real capacity constraint: tile_mem needs 2 x features_padded x
+# clauses_padded bits, and must fit the target device's Block RAM budget
+# (see matador.backends.gp_tiled.fpga_budget.FPGA_BRAM_BITS /
+# TILE_MEM_BRAM_FRACTION). Known devices: xc7z020 (Zynq-7020, 4.9 Mbit BRAM
+# — too small for the capacity below), xcku040 (Kintex UltraScale, 38 Mbit
+# BRAM). For any other device, also set bram_bits_budget to its total BRAM
+# bit count directly.
+target_fpga: xcku040
+# bram_bits_budget: 100000000   # uncomment + set if target_fpga isn't known
+
+# ── per-cycle SIMD width ("how many rounds of computation") ────────────
+# n_feat_slices = ceil(max_features/feat_slice), n_clause_slices =
+# ceil(max_clauses_total/clause_slice); n_tiles = n_feat_slices *
+# n_clause_slices is how many BRAM-read cycles one inference takes.
+# Larger slice width -> fewer rounds (lower latency) but more parallel
+# clause_eval logic and a wider tile_mem port.
+feat_slice: 32
+clause_slice: 32
+
+# ── compile-time capacity (real units; silicon sizing) ─────────────────
+# Any per_class vanilla model with geometry within these maxima can be
+# loaded at runtime without resynthesizing. This example (2000 features x
+# 2000 clauses) needs ~8.13 Mbit of BRAM for tile_mem — fits comfortably on
+# xcku040 (~20% of its 38 Mbit), does NOT fit xc7z020 (only 4.9 Mbit total).
+# Protocol wire-format hard ceilings (see tmir_bridge.HARD_MAX_*):
+#   max_classes <= 255, max_clauses_total <= 65535,
+#   max_feat_slices/max_clause_slices (derived) <= 255 each,
+#   n_tiles (derived) <= 65535.
+max_features: 2000
+max_clauses_total: 2000
+max_classes: 20

@@ -20,12 +20,16 @@ import importlib
 _BACKENDS: dict[str, tuple[str, str]] = {
     "vanilla_tiled":     ("matador.backends.tiled.rtl",     "TiledBackend"),
     "vanilla_hardwired": ("matador.backends.hardwired.rtl", "HardwiredBackend"),
+    "vanilla_gp_tiled":  ("matador.backends.gp_tiled.rtl",  "GPTiledBackend"),
 }
 
 # Short one-line descriptions shown in list-backends and the splash screen
 _DESCRIPTIONS: dict[str, str] = {
     "vanilla_tiled":     "Vanilla TM — sequential FSM + tile ROM. Knobs: feat_slice, clause_slice.",
     "vanilla_hardwired": "Vanilla TM — HCB streaming + adder tree.  Knobs: pipeline_stages.",
+    "vanilla_gp_tiled":  "Vanilla TM — runtime-reprogrammable tiled core (vendored from "
+                         "GP_TM_Inference_Accelerator). Knobs: target_fpga, feat_slice, "
+                         "clause_slice, max_features, max_clauses_total, max_classes.",
 }
 
 
