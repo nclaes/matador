@@ -44,23 +44,61 @@ def faena() -> None:
         click.echo("    Then run:       matador generate --config /work/generate_config.yaml")
         return
 
-    click.echo("")
-    click.echo("  Step 1 — edit the training config:")
+    has_boolean_data = click.confirm(
+        "  Do you already have Boolean (0/1) training/test data files?",
+        default=True,
+    )
+
+    if not has_boolean_data:
+        has_raw_data = click.confirm(
+            "  Do you have raw (non-Boolean) data ready to convert — locally or via a URL?",
+            default=True,
+        )
+
+        if not has_raw_data:
+            click.echo("")
+            click.echo("  Step 0 — describe where your raw data is (local path, or a URL):")
+            click.echo("    cp examples/data_source_config.yaml /work/data_source_config.yaml")
+            click.echo("    (or point --config at a {catalog, key} pair into a shared catalog")
+            click.echo("     like data/Raw_Data_Bank.yaml)")
+            click.echo("")
+            click.echo("  Step 1 — fetch/materialize it:")
+            click.echo("    matador ingest --config /work/data_source_config.yaml --output-dir /work/raw")
+            click.echo("    Outputs: /work/raw/<key>.npz")
+            click.echo("")
+
+        click.echo("  Step 2 — describe how to booleanize it:")
+        click.echo("    cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml")
+        click.echo("    (point raw_npz at the ingest output above, or your own x/y npz)")
+        click.echo("")
+        click.echo("  Step 3 — booleanize:")
+        click.echo("    matador booleanize --config /work/booleanisation_config.yaml")
+        click.echo("    Outputs: <name>_train.txt / <name>_test.txt")
+        click.echo("             (the exact format training_config.yaml's train_data/test_data expects)")
+        click.echo("")
+
+    click.echo("  Step 4 — edit the training config:")
     click.echo("    cp examples/training_config.yaml /work/training_config.yaml")
+    if not has_boolean_data:
+        click.echo("    (set train_data/test_data to the booleanize output above)")
     click.echo("")
-    click.echo("  Step 2 — train:")
+    click.echo("  Step 5 — train:")
     click.echo("    matador train --config /work/training_config.yaml")
     click.echo("    Outputs: /work/TMIR/<model>.npz  +  /work/TMIR/validation_config.yaml")
     click.echo("             /work/TMIR/rom_inference.py  (standalone provenance script)")
     click.echo("")
 
-    if click.confirm("  Start training now using /work/training_config.yaml?", default=True):
+    if has_boolean_data and click.confirm("  Start training now using /work/training_config.yaml?", default=True):
         _run_training(_DEFAULT_CONFIG)
 
 
 def _print_toolchain() -> None:
     """Print the Matador toolchain stages to stdout."""
     stages = [
+        ("ingest",     "Fetch/materialize raw data (local or external)",
+                       "data_source_config.yaml  →  raw arrays (npz/csv)"),
+        ("booleanize", "Encode raw arrays into Boolean features",
+                       "booleanisation_config.yaml  →  <name>_train.txt / _test.txt"),
         ("train",      "Train a TM model on Boolean feature data",
                        "training_config.yaml  →  TMIR (.npz / .yaml)"),
         ("validate",   "Check model accuracy on the held-out test set",
@@ -71,6 +109,8 @@ def _print_toolchain() -> None:
                        "TMIR + config  →  InferenceTrace per sample"),
         ("simulate",   "Compile and run RTL testbenches",
                        "generated RTL  →  PASS / FAIL per testbench"),
+        ("reprogram-suite", "Multi-model/dataset RTL testbenches (reprogrammable backends)",
+                       "reprogram_config.yaml  →  tb_reprogram_suite.v + stimulus/expected .memh"),
         ("provenance", "ROM-based full-dataset inference report",
                        "TMIR + test data  →  JSON (fingerprint + accuracy)"),
     ]
@@ -85,6 +125,128 @@ def _print_toolchain() -> None:
         click.echo(f"  {'':24}  {click.style(detail, dim=True)}")
         click.echo("")
 
+
+
+@main.command("ingest")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(path_type=Path),
+    default=Path("/work/data_source_config.yaml"),
+    show_default=True,
+    help="Path to a data_source_config.yaml (standalone spec, or {catalog, key} pointer).",
+)
+@click.option(
+    "--output-dir",
+    "output_dir",
+    type=click.Path(path_type=Path),
+    default=Path("/work/raw"),
+    show_default=True,
+    help="Where materialized raw arrays are written.",
+)
+def ingest(config_path: Path, output_dir: Path) -> None:
+    """Fetch and materialize raw data described by a data_source_config.yaml.
+
+    \b
+    Examples:
+      matador ingest --config /work/data_source_config.yaml --output-dir /work/raw
+
+    \b
+    Config template:
+      cp examples/data_source_config.yaml /work/data_source_config.yaml
+    """
+    from matador.preprocessing.ingest import run_ingest
+    from matador.preprocessing.sources import resolve_source_config
+
+    if not config_path.exists():
+        raise click.ClickException(
+            f"Config file not found: {config_path}\n"
+            "  Create one based on examples/data_source_config.yaml."
+        )
+
+    try:
+        spec, defaults = resolve_source_config(config_path)
+    except Exception as exc:
+        raise click.ClickException(f"Invalid config: {exc}") from exc
+
+    click.echo(f"Ingesting {spec.key!r} ({spec.name or spec.key})")
+    click.echo(f"  source: {spec.source.kind}")
+    click.echo("")
+
+    try:
+        report = run_ingest(spec, output_dir, defaults=defaults)
+    except Exception as exc:
+        raise click.ClickException(f"Ingest failed: {exc}") from exc
+
+    click.echo(f"  train samples: {report.x_train.shape[0]}  test samples: {report.x_test.shape[0]}")
+    for w in report.warnings:
+        click.echo(f"  warning: {w}")
+    click.echo("")
+    click.echo("Output:")
+    for fmt, path in report.output_paths.items():
+        click.echo(f"  {fmt}: {path}")
+    click.echo("")
+    click.echo("Next step — booleanize this into train/test files matador train can use:")
+    click.echo("  cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml")
+    click.echo("  matador booleanize --config /work/booleanisation_config.yaml")
+
+
+@main.command("booleanize")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(path_type=Path),
+    default=Path("/work/booleanisation_config.yaml"),
+    show_default=True,
+    help="Path to a booleanisation_config.yaml.",
+)
+def booleanize(config_path: Path) -> None:
+    """Encode raw arrays (from `matador ingest`, or any x/y npz) into the
+    Boolean train/test text files `matador train` consumes.
+
+    \b
+    Examples:
+      matador booleanize --config /work/booleanisation_config.yaml
+
+    \b
+    Config template:
+      cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml
+    """
+    from matador.config.schema import BooleanisationConfig
+    from matador.preprocessing.booleanize import run_booleanize
+
+    if not config_path.exists():
+        raise click.ClickException(
+            f"Config file not found: {config_path}\n"
+            "  Create one based on examples/booleanisation_config.yaml."
+        )
+
+    try:
+        raw = yaml.safe_load(config_path.read_text())
+        config = BooleanisationConfig.model_validate(raw)
+    except Exception as exc:
+        raise click.ClickException(f"Invalid config: {exc}") from exc
+
+    click.echo(f"Booleanizing {config.raw_npz} -> {config.name}_{{train,test}}.txt")
+    click.echo("")
+
+    try:
+        report = run_booleanize(config)
+    except Exception as exc:
+        raise click.ClickException(f"Booleanization failed: {exc}") from exc
+
+    click.echo(f"  train samples: {report.n_train}  test samples: {report.n_test}")
+    click.echo(f"  {report.n_features_raw} raw features -> {report.n_features_bool} Boolean bits")
+    click.echo("")
+    click.echo("Output:")
+    for name, path in report.output_paths.items():
+        click.echo(f"  {name}: {path}")
+    click.echo("")
+    click.echo("Next step — point training_config.yaml at these files:")
+    click.echo(f"  train_data: {report.output_paths['train']}")
+    click.echo(f"  test_data: {report.output_paths['test']}")
+    click.echo(f"  features: {report.n_features_bool}")
+    click.echo("  matador train --config /work/training_config.yaml")
 
 
 @main.command("train")
@@ -459,6 +621,126 @@ def simulate(backend_name: str, config_path: Path, sim: str, tb: str, open_waves
 
     if not report.all_passed:
         raise SystemExit(1)
+
+
+@main.command("reprogram-suite")
+@click.option(
+    "--backend", "backend_name",
+    required=True,
+    type=click.Choice(list_backends()),
+    help="Backend to target — must support runtime reprogramming (currently: vanilla_gp_tiled).",
+)
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to the backend's own accelerator config YAML (same file used for "
+         "`matador generate`/`matador simulate`).  Default: /work/<backend>.yaml",
+)
+@click.option(
+    "--reprogram-config",
+    "reprogram_config_path",
+    type=click.Path(path_type=Path),
+    default=Path("/work/reprogram_config.yaml"),
+    show_default=True,
+    help="Path to a reprogram_config.yaml (the ordered {model, dataset} step list).",
+)
+def reprogram_suite(backend_name: str, config_path: "Path | None", reprogram_config_path: Path) -> None:
+    """Build a testbench + stimulus that reprograms an already-generated
+    bundle across multiple models/datasets in one continuous run — the
+    concrete, checkable proof that a runtime-reprogrammable backend really
+    does reprogram with YOUR models, not just one at a time.
+
+    \b
+    Requires `matador generate` to have already run for --backend/--config.
+
+    \b
+    Examples:
+      matador reprogram-suite --backend vanilla_gp_tiled \\
+          --config /work/vanilla_gp_tiled.yaml \\
+          --reprogram-config /work/reprogram_config.yaml
+
+    \b
+    Config template:
+      cp examples/reprogram_config.yaml /work/reprogram_config.yaml
+    """
+    from matador.backends.base import ReprogramStep
+    from matador.backends.gp_tiled.reprogram_config import ReprogramSuiteConfig
+    from matador.backends.registry import get as get_backend
+
+    if config_path is None:
+        config_path = Path(f"/work/{backend_name}.yaml")
+
+    backend = get_backend(backend_name)()
+    if not backend.supports_reprogramming:
+        supported = [n for n in list_backends() if get_backend(n)().supports_reprogramming]
+        raise click.ClickException(
+            f"Backend {backend_name!r} does not support runtime reprogramming. "
+            f"Backends that do: {', '.join(supported) or '(none registered)'}"
+        )
+
+    if not config_path.exists():
+        raise click.ClickException(
+            f"Config file not found: {config_path}\n"
+            f"  This is the same config used for 'matador generate --backend {backend_name}'."
+        )
+    if not reprogram_config_path.exists():
+        raise click.ClickException(
+            f"Config file not found: {reprogram_config_path}\n"
+            "  Create one based on examples/reprogram_config.yaml."
+        )
+
+    try:
+        raw = yaml.safe_load(config_path.read_text())
+        config = backend.config_class.model_validate(raw)
+    except Exception as exc:
+        raise click.ClickException(f"Invalid config: {exc}") from exc
+    config = config.model_copy(update={"output_dir": config.output_dir / backend_name})
+
+    try:
+        raw_reprogram = yaml.safe_load(reprogram_config_path.read_text())
+        reprogram_config = ReprogramSuiteConfig.model_validate(raw_reprogram)
+    except Exception as exc:
+        raise click.ClickException(f"Invalid reprogram config: {exc}") from exc
+
+    rtl_dir = config.output_dir / "RTL"
+    if not rtl_dir.exists():
+        raise click.ClickException(
+            f"{rtl_dir} does not exist — run 'matador generate --backend {backend_name} "
+            f"--config {config_path}' first."
+        )
+
+    steps = [
+        ReprogramStep(
+            tmir_path=s.model, dataset_path=s.dataset, vectors_path=s.vectors,
+            n_samples=s.n_samples, seed=s.seed, name=s.name,
+        )
+        for s in reprogram_config.steps
+    ]
+
+    click.echo(f"Building reprogram suite for {backend_name} at {rtl_dir} ({len(steps)} step(s))")
+    click.echo("")
+
+    try:
+        artifacts = backend.build_reprogram_suite(rtl_dir, steps, config)
+    except Exception as exc:
+        raise click.ClickException(f"Reprogram-suite build failed: {exc}") from exc
+
+    click.echo("Wrote:")
+    for p in [*artifacts.testbenches, *artifacts.sim_scripts]:
+        click.echo(f"  {p}")
+    click.echo("")
+    sim_dir = rtl_dir / "sim"
+    tb_name = artifacts.testbenches[0].stem
+    src_dir = rtl_dir / "src"
+    srcs = " ".join(str(src_dir / f) for f in (
+        "axis_fifo.v", "clause_eval.v", "tile_mem.v", "score_acc_rt.v", "argmax_rt.v", "tm_accel_gp.v",
+    ))
+    out_bin = sim_dir / tb_name
+    click.echo("Next step — compile and run it:")
+    click.echo(f"  iverilog -g2001 -Wall -Wno-timescale -o {out_bin} {srcs} {artifacts.testbenches[0]} && "
+               f"(cd {sim_dir} && vvp {out_bin})")
 
 
 @main.command("waves")

@@ -1,6 +1,6 @@
 from enum import Enum
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -75,6 +75,45 @@ class ValidationConfig(BaseModel):
     def test_data_must_exist(cls, v: Optional[Path]) -> Optional[Path]:
         if v is not None and not v.exists():
             raise ValueError(f"test_data does not exist: {v}")
+        return v
+
+
+class FeatureEncoderSpec(BaseModel):
+    """One column (or column range) -> Boolean-bit-block mapping. `column`
+    is required inside BooleanisationConfig.features (an int index, or an
+    inclusive "lo-hi" range string applying the same encoder independently
+    to each covered column); it's ignored on default_encoder, which is a
+    template applied to every column not otherwise listed."""
+    column: Optional[Union[int, str]] = None
+    encoder: Literal["thermometer", "threshold", "onehot", "passthrough"]
+    bits: Optional[int] = Field(default=None, gt=0, description="thermometer only")
+    range: Optional[tuple[float, float]] = Field(default=None, description="thermometer only")
+    bins: Optional[list[float]] = Field(default=None, description="thermometer only: explicit thresholds")
+    quantile: bool = Field(default=False, description="thermometer only: fit thresholds from train quantiles")
+    threshold: Optional[float] = Field(default=None, description="threshold encoder only")
+    categories: Optional[list[Any]] = Field(default=None, description="onehot only: explicit category list")
+
+
+class BooleanisationConfig(BaseModel):
+    """Turns raw arrays (matador ingest's npz output, or any x/y npz) into
+    the exact Boolean train/test text format TrainingConfig.train_data /
+    test_data already consumes — no changes needed to matador train."""
+    raw_npz: Path = Field(description="npz with x_train/y_train/x_test/y_test, or unsplit x/y.")
+    name: str = Field(description="Output file stem: <name>_train.txt / <name>_test.txt")
+    output_dir: Path = Field(description="Directory for output files.")
+    features: list[FeatureEncoderSpec] = Field(default_factory=list)
+    default_encoder: Optional[FeatureEncoderSpec] = Field(
+        default=None, description="Fallback applied to any raw column not covered by `features`."
+    )
+    test_size: float = Field(default=0.2, gt=0, lt=1, description="Only used when raw_npz has unsplit x/y.")
+    seed: int = Field(default=0)
+    stratify: bool = Field(default=True)
+
+    @field_validator("raw_npz", mode="after")
+    @classmethod
+    def _raw_npz_must_exist(cls, v: Path) -> Path:
+        if not v.exists():
+            raise ValueError(f"raw_npz does not exist: {v}")
         return v
 
 

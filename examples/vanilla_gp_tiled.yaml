@@ -41,7 +41,7 @@ fifo_depth: 16
 # — too small for the capacity below), xcku040 (Kintex UltraScale, 38 Mbit
 # BRAM). For any other device, also set bram_bits_budget to its total BRAM
 # bit count directly.
-target_fpga: xcku040
+target_fpga: xc7z020
 # bram_bits_budget: 100000000   # uncomment + set if target_fpga isn't known
 
 # ── per-cycle SIMD width ("how many rounds of computation") ────────────

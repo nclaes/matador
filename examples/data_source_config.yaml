@@ -1,0 +1,53 @@
+# Matador Data Source Configuration
+#
+# Place this file in your work directory (mounted as /work inside the container).
+# Run: matador ingest --config /work/data_source_config.yaml --output-dir /work/raw
+#
+# Points Matador at raw data — local or external — and fetches/materializes
+# it. Two ways to fill this file out:
+#
+#   1. A POINTER into a shared multi-dataset catalog (this example), reusing
+#      one of the datasets already cataloged in data/Raw_Data_Bank.yaml.
+#   2. A STANDALONE single-dataset spec (no "catalog"/"key" — instead the
+#      same status/source/extract/parse/split/export fields directly, i.e.
+#      one entry copied out of data/Raw_Data_Bank.yaml's own datasets: list).
+#      See that file's own "FIELD REFERENCE" header for what each field
+#      means, and its 11 entries for real examples of every reader/split
+#      mode this schema supports.
+#
+# For your OWN local raw data (not from an external URL at all), use
+# source: {kind: local, path: /work/my_raw_data} instead — see the
+# commented-out block below.
+#
+# `catalog` is resolved relative to THIS file if not absolute. If you've
+# mounted the matador repo's data/ dir into your work directory (e.g.
+# `-v /path/to/matador/data:/work/data`), point it there; otherwise give an
+# absolute path to wherever data/Raw_Data_Bank.yaml actually lives.
+
+catalog: /work/data/Raw_Data_Bank.yaml
+key: digits
+
+# --- Standalone local-data alternative (delete the catalog/key lines above
+#     and uncomment this instead, to booleanize your own already-downloaded
+#     raw data with no external fetch at all) ---
+#
+# key: my_dataset
+# source:
+#   kind: local
+#   path: /work/my_raw_data/data.csv
+# extract:
+#   archive: none
+# parse:
+#   reader: csv
+#   delimiter: ","
+#   header: false
+#   label_column: -1
+#   dtype: float32
+# split:
+#   mode: random
+#   test_size: 0.2
+#   seed: 0
+#   stratify: true
+# export:
+#   formats: [npz]
+#   path: "{output_dir}/{key}"

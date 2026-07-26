@@ -1,0 +1,48 @@
+# Matador Booleanisation Configuration
+#
+# Place this file in your work directory (mounted as /work inside the container).
+# Run: matador booleanize --config /work/booleanisation_config.yaml
+#
+# Turns raw arrays — from `matador ingest` (an npz with x_train/y_train/
+# x_test/y_test), or any x/y npz of your own — into the exact Boolean
+# train/test text format `matador train` already consumes (space-separated
+# 0/1, last column = label). No changes needed to training_config.yaml
+# beyond pointing train_data/test_data at this stage's output.
+#
+# This example matches data/Raw_Data_Bank.yaml's own "digits" entry: 64
+# pixel-intensity features (0..16), each 8-bit thermometer coded — the same
+# encoding documented in its `booleanised.encoding` field, and checkable
+# against the already-committed data/Digits/Digits_train.txt.
+
+# npz produced by `matador ingest` (or any npz with x_train/x_test/
+# y_train/y_test, or unsplit x/y — see test_size/seed/stratify below).
+raw_npz: /work/raw/digits.npz
+
+# Output file stem: <name>_train.txt / <name>_test.txt
+name: digits
+
+output_dir: /work/booleanised
+
+# Per-column (or column-range) encoders, applied in order. `column` is
+# either a single index or an inclusive "lo-hi" range string (the same
+# encoder spec is applied independently to each column in the range).
+# Available encoders:
+#   thermometer  — k-bit thermometer code over a numeric range
+#                  (bits, range/bins/quantile)
+#   threshold    — single bit: value > threshold
+#   onehot       — one bit per category (categories, or auto-detected
+#                  from the train split)
+#   passthrough  — column is already 0/1, kept as one bit
+features: []
+
+# Applied to any column not explicitly listed in `features` above — here,
+# every one of digits' 64 columns, since none are listed individually.
+default_encoder:
+  encoder: thermometer
+  bits: 8
+  range: [0, 16]
+
+# Only used when raw_npz has unsplit x/y (no pre-existing train/test split).
+test_size: 0.2
+seed: 0
+stratify: true

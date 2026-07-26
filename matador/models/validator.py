@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -199,7 +200,7 @@ def validate_rtl(config) -> RTLValidationReport:
     else:
         _LOGGER.warning("iverilog not found — skipping testbenches")
 
-    # ── Verilator system test (tiled backend only — generates a Makefile harness) ──
+    # ── Verilator system test (any backend shipping a sim/verilator/Makefile) ──
     have_verilator_harness = verilator_dir.exists() and (verilator_dir / "Makefile").exists()
 
     if have_verilator and have_verilator_harness:
@@ -216,9 +217,16 @@ def validate_rtl(config) -> RTLValidationReport:
                 failures=err_lines[:15],
             ))
         else:
-            # Find the built binary (name depends on top-level module)
-            candidates = list((verilator_dir / "obj_dir").glob("V*"))
-            bin_path   = candidates[0] if candidates else verilator_dir / "obj_dir" / "Vtm_accelerator"
+            # Find the built binary (name depends on top-level module). Glob
+            # "V*" also matches Verilator's companion build artifacts
+            # (Vfoo.mk, Vfoo.h, Vfoo__ALL.a, ...) — only the actual binary
+            # has the executable bit set, and glob() order isn't guaranteed,
+            # so filter on that rather than taking the first match.
+            candidates = [
+                p for p in (verilator_dir / "obj_dir").glob("V*")
+                if p.is_file() and os.access(p, os.X_OK) and p.suffix == ""
+            ]
+            bin_path = candidates[0] if candidates else verilator_dir / "obj_dir" / "Vtm_accelerator"
             rp = subprocess.run(
                 [str(bin_path)], capture_output=True, text=True,
                 cwd=str(verilator_dir),

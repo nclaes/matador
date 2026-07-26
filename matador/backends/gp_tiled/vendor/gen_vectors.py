@@ -41,17 +41,35 @@ Usage:
   # tb_system_gp_model.v), so you don't have to hand-write one:
   python3 gen_vectors.py combined model.json --random -n 20 \\
       -o stim.memh --expected exp.memh --testbench tb_my_model.v
+  # (run from this directory, sim/ -- source files live one level up in ../src/)
   iverilog -g2001 -Wall -Wno-timescale -o tb_my_model \\
-      axis_fifo.v clause_eval.v tile_mem.v score_acc_rt.v argmax_rt.v \\
-      ../src/tm_accel_gp.v tb_my_model.v && vvp tb_my_model
+      ../src/axis_fifo.v ../src/clause_eval.v ../src/tile_mem.v \\
+      ../src/score_acc_rt.v ../src/argmax_rt.v ../src/tm_accel_gp.v \\
+      tb_my_model.v && vvp tb_my_model
 
   # building blocks, if you want LOAD and INFER as separate streams
   python3 gen_vectors.py load model.json -o load.memh
   python3 gen_vectors.py infer model.json vectors.txt -o infer.memh [--expected expected.memh]
   python3 gen_vectors.py random-infer model.json -n 10 -o infer.memh [--seed N]
 
+  # prove reprogrammability with YOUR OWN models: chain several models into
+  # one continuous LOAD->INFER->LOAD->INFER->... run (this is the concrete
+  # answer to "can I swap models at runtime" -- see manifest.json schema
+  # below):
+  python3 gen_vectors.py sequence manifest.json \\
+      -o seq_stim.memh --expected seq_exp.memh --testbench tb_sequence.v
+
 vectors.txt: one feature vector per line, whitespace/comma-separated 0/1
              bits, exactly n_features bits per line.
+
+manifest.json (for `sequence`): a JSON list of steps, applied in order,
+each either
+  {"model": "modelA.json", "vectors": "vecsA.txt"}
+or
+  {"model": "modelB.json", "random": true, "n": 10, "seed": 1}
+Paths inside the manifest are resolved relative to the manifest file's own
+directory, so a manifest + its referenced model/vector files can be kept
+together and moved as a unit.
 """
 
 from __future__ import annotations
@@ -297,10 +315,15 @@ endmodule
 """
 
 
-def _emit_testbench(model, tb_path: Path, stim_file: str, exp_file: str, n_stim: int, n_exp: int) -> None:
+def _emit_testbench(name: str, tb_path: Path, stim_file: str, exp_file: str, n_stim: int, n_exp: int) -> None:
+    """name: a label for the testbench/module (e.g. a model name, or a
+    manifest name for a multi-model `sequence`) -- purely cosmetic, doesn't
+    affect capacity, which comes entirely from tm_emulator's globals
+    (already synced by load_capacity() to this bundle's synthesized
+    capacity) since the DUT is fixed regardless of which model is loaded."""
     dut_params = ", ".join(
-        f".{name}({getattr(te, name)})"
-        for name in (
+        f".{pname}({getattr(te, pname)})"
+        for pname in (
             "MAX_CLASSES", "MAX_CLAUSES_TOTAL", "MAX_FEAT_SLICES", "MAX_CLAUSE_SLICES",
             "FEAT_SLICE", "CLAUSE_SLICE",
         )
@@ -316,17 +339,18 @@ def _emit_testbench(model, tb_path: Path, stim_file: str, exp_file: str, n_stim:
         f".N_TILES_MAX({n_tiles_max}), .TILE_AW({tile_aw}), .WORD_CNT_W({word_cnt_w}), "
         f".CLASS_WIDTH({class_width}), .FIFO_DEPTH(16)"
     )
-    tb_name = "tb_" + "".join(c if c.isalnum() else "_" for c in model.name)
+    tb_name = "tb_" + "".join(c if c.isalnum() else "_" for c in name)
     text = _TB_TEMPLATE.format(
-        model_name=model.name, tb_name=tb_name, axis_data_width=te.AXIS_W,
+        model_name=name, tb_name=tb_name, axis_data_width=te.AXIS_W,
         n_stim=n_stim, n_exp=n_exp, to_max=max(200_000, 4 * n_stim),
         dut_params=dut_params, stim_file=stim_file, exp_file=exp_file,
     )
     tb_path.write_text(text)
     print(f"wrote testbench module {tb_name} -> {tb_path}")
-    print(f"  compile: iverilog -g2001 -Wall -Wno-timescale -o {tb_name} "
-          f"axis_fifo.v clause_eval.v tile_mem.v score_acc_rt.v argmax_rt.v "
-          f"../src/tm_accel_gp.v {tb_path.name} && vvp {tb_name}")
+    print(f"  compile (run from this directory, sim/): iverilog -g2001 -Wall -Wno-timescale "
+          f"-o {tb_name} ../src/axis_fifo.v ../src/clause_eval.v ../src/tile_mem.v "
+          f"../src/score_acc_rt.v ../src/argmax_rt.v ../src/tm_accel_gp.v "
+          f"{tb_path.name} && vvp {tb_name}")
 
 
 def cmd_combined(args: argparse.Namespace) -> int:
@@ -358,7 +382,77 @@ def cmd_combined(args: argparse.Namespace) -> int:
             print("error: --testbench requires --expected (the testbench reads it)", file=sys.stderr)
             return 1
         _emit_testbench(
-            model, Path(args.testbench),
+            model.name, Path(args.testbench),
+            stim_file=Path(args.out).name, exp_file=Path(args.expected).name,
+            n_stim=len(stim_words), n_exp=len(exp_words),
+        )
+    return 0
+
+
+def cmd_sequence(args: argparse.Namespace) -> int:
+    """Chain MULTIPLE user-supplied models into one continuous
+    LOAD -> INFER -> LOAD -> INFER -> ... stream -- the concrete way to
+    prove runtime reprogrammability with YOUR OWN models, not just the two
+    built-in demo models tb_system_gp.v ships with (same idea, generalized:
+    each step is still just encode_load_packet()+encode_infer_packet(),
+    concatenated via stream_with_tlast() same as `combined` does for one
+    model).
+
+    manifest.json: a JSON list of steps, each either
+      {"model": "modelA.json", "vectors": "vecsA.txt"}
+    or
+      {"model": "modelB.json", "random": true, "n": 10, "seed": 1}
+    Paths are resolved relative to the manifest file's own directory."""
+    manifest_path = Path(args.manifest)
+    steps = json.loads(manifest_path.read_text())
+    if not isinstance(steps, list) or not steps:
+        raise ValueError(f"{manifest_path}: expected a non-empty JSON list of steps")
+
+    base_dir = manifest_path.resolve().parent
+    packets: list = []
+    exp_words: list = []
+    exp_lasts: list = []
+
+    for idx, step in enumerate(steps):
+        model = load_model(base_dir / step["model"])
+
+        if step.get("random"):
+            rng = random.Random(step.get("seed", 0))
+            vecs = [rng.getrandbits(model.n_features) for _ in range(step.get("n", 10))]
+        elif "vectors" in step:
+            vecs = _read_vectors(base_dir / step["vectors"], model.n_features)
+        else:
+            raise ValueError(f"manifest step {idx}: need either \"vectors\" or \"random\": true")
+
+        packets.append(te.encode_load_packet(model))
+        if vecs:
+            packets.append(te.encode_infer_packet(model, vecs))
+
+        preds = [model.infer_tiled(fv)[0] for fv in vecs]
+        exp_words.append(te.expected_load_ack(model))
+        exp_lasts.append(1)
+        if preds:
+            exp_words.extend(preds)
+            exp_lasts.extend([0] * (len(preds) - 1) + [1])
+
+        print(f"  step {idx}: model={model.name!r} ({model.n_classes} classes, "
+              f"{model.clauses_per_class} clauses/class) -- {len(vecs)} vector(s), "
+              f"predictions={preds}")
+
+    stim_words, stim_lasts = te.stream_with_tlast(packets)
+    te.write_memh(Path(args.out), stim_words, stim_lasts)
+    print(f"wrote {len(stim_words)} words across {len(steps)} reprogram step(s) -> {args.out}")
+
+    if args.expected:
+        te.write_memh(Path(args.expected), exp_words, exp_lasts)
+        print(f"wrote {len(exp_words)} expected beats -> {args.expected}")
+
+    if args.testbench:
+        if not args.expected:
+            print("error: --testbench requires --expected (the testbench reads it)", file=sys.stderr)
+            return 1
+        _emit_testbench(
+            manifest_path.stem, Path(args.testbench),
             stim_file=Path(args.out).name, exp_file=Path(args.expected).name,
             n_stim=len(stim_words), n_exp=len(exp_words),
         )
@@ -400,6 +494,17 @@ def main(argv=None) -> int:
     pi.add_argument("-n", type=int, default=10)
     pi.add_argument("--seed", type=int, default=0)
     pi.set_defaults(func=cmd_infer)
+
+    ps = sub.add_parser(
+        "sequence",
+        help="chain multiple of YOUR OWN models into one continuous reprogram-and-verify run",
+    )
+    ps.add_argument("manifest", help="JSON list of {model, vectors} or {model, random, n, seed} steps")
+    ps.add_argument("-o", "--out", required=True)
+    ps.add_argument("--expected", default=None, help="also write expected ack+prediction beats here")
+    ps.add_argument("--testbench", default=None,
+                    help="also write a ready-to-compile Verilog testbench here (requires --expected)")
+    ps.set_defaults(func=cmd_sequence)
 
     args = p.parse_args(argv)
     load_capacity(Path(__file__).resolve().parent)

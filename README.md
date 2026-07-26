@@ -4,13 +4,19 @@
 
 Matador trains Tsetlin Machines and generates synthesisable Verilog RTL for FPGA deployment.
 It produces a complete hardware design from a trained model in one command, with built-in
-simulation, emulation, and reproducibility tooling.
+simulation, emulation, and reproducibility tooling — and, upstream of training, tooling to
+fetch/booleanize raw data in the first place.
 
 ```bash
-matador train    --config /work/training_config.yaml
-matador generate --backend vanilla_tiled --config /work/vanilla_tiled.yaml
-matador simulate --backend vanilla_tiled --config /work/vanilla_tiled.yaml
+matador ingest      --config /work/data_source_config.yaml    # optional: raw data -> npz
+matador booleanize  --config /work/booleanisation_config.yaml # optional: npz -> Boolean train/test
+matador train        --config /work/training_config.yaml
+matador generate     --backend vanilla_tiled --config /work/vanilla_tiled.yaml
+matador simulate     --backend vanilla_tiled --config /work/vanilla_tiled.yaml
 ```
+
+Not sure where to start? `matador faena` is an interactive wizard that walks through
+whichever of the above your workspace doesn't have yet.
 
 ---
 
@@ -19,7 +25,7 @@ matador simulate --backend vanilla_tiled --config /work/vanilla_tiled.yaml
 | Document | Contents |
 |---|---|
 | [docs/Setup.md](docs/Setup.md) | Docker setup, building the container, first run |
-| [docs/Usage.md](docs/Usage.md) | Full training → generate → simulate workflow with YAML examples |
+| [docs/Usage.md](docs/Usage.md) | Full ingest → booleanize → train → generate → simulate workflow with YAML examples |
 | [docs/Developer.md](docs/Developer.md) | Plugin architecture — adding new accelerator backends |
 
 ---
@@ -30,7 +36,7 @@ matador simulate --backend vanilla_tiled --config /work/vanilla_tiled.yaml
 |---|---|
 | `vanilla_tiled` | Vanilla TM — sequential FSM + tile ROM. Knobs: `feat_slice`, `clause_slice`. |
 | `vanilla_hardwired` | Vanilla TM — HCB streaming + adder tree. Knobs: `pipeline_stages`. |
-| `vanilla_gp_tiled` | Vanilla TM — runtime-reprogrammable tiled core (vendored from GP_TM_Inference_Accelerator). One synthesis, reprogrammable at runtime via AXI-Stream `CMD_LOAD` — no resynthesis to swap models. Capacity is checked against a target FPGA's BRAM budget. Knobs: `target_fpga`, `feat_slice`, `clause_slice`, `max_features`, `max_clauses_total`, `max_classes`. |
+| `vanilla_gp_tiled` | Vanilla TM — runtime-reprogrammable tiled core (vendored from GP_TM_Inference_Accelerator). One synthesis, reprogrammable at runtime via AXI-Stream `CMD_LOAD` — no resynthesis to swap models. Capacity is checked against a target FPGA's BRAM budget. Knobs: `target_fpga`, `feat_slice`, `clause_slice`, `max_features`, `max_clauses_total`, `max_classes`. Multi-model/dataset reprogramming can be proven end to end with `matador reprogram-suite`. |
 
 ---
 

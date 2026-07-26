@@ -86,6 +86,32 @@ def _workspace_state() -> dict:
     if not _WORK.exists():
         return state
 
+    # ── Preprocessing pipeline (raw data -> booleanized data), upstream of
+    #    training_config below ──────────────────────────────────────────────
+    state["data_source_config"] = (_WORK / "data_source_config.yaml") \
+        if (_WORK / "data_source_config.yaml").exists() else None
+
+    # matador ingest's own npz output (default output dir is /work/raw, but
+    # export.path in the config can point anywhere under /work) -- excludes
+    # TMIR/ so a trained model's own .npz isn't mistaken for raw data.
+    _npz_candidates = sorted(
+        (p for p in _WORK.glob("**/*.npz") if "TMIR" not in p.relative_to(_WORK).parts),
+        key=lambda p: p.stat().st_mtime, reverse=True,
+    )
+    state["raw_data"] = _npz_candidates[0] if _npz_candidates else None
+
+    state["booleanisation_config"] = (_WORK / "booleanisation_config.yaml") \
+        if (_WORK / "booleanisation_config.yaml").exists() else None
+
+    # matador booleanize always writes a "<name>_report.json" alongside its
+    # <name>_train.txt/<name>_test.txt -- a much more specific signal than
+    # guessing a directory name, since export path is user-configurable.
+    state["boolean_report"] = _find_newest("**/*_report.json")
+
+    state["reprogram_config"] = (_WORK / "reprogram_config.yaml") \
+        if (_WORK / "reprogram_config.yaml").exists() else None
+    state["reprogram_suite"] = _find_newest("**/tb_reprogram_suite.v")
+
     state["training_config"] = _find_training_config()
 
     # Use ** recursive glob so files are found regardless of whether output_dir
@@ -101,11 +127,18 @@ def _workspace_state() -> dict:
     )
 
     # RTL backends may sit directly under /work or under /work/TMIR depending
-    # on the output_dir used during generation.
-    state["rtl_vanilla_tiled"]     = any((_WORK / p).exists() for p in
-                                  ["vanilla_tiled/RTL", "TMIR/vanilla_tiled/RTL"])
-    state["rtl_vanilla_hardwired"] = any((_WORK / p).exists() for p in
-                                  ["vanilla_hardwired/RTL", "TMIR/vanilla_hardwired/RTL"])
+    # on the output_dir used during generation. Checked against every
+    # REGISTERED backend (not a hardcoded pair) so newly added backends show
+    # up here automatically instead of silently going undetected.
+    try:
+        from matador.backends.registry import list_backends as _lb
+        _backend_names = _lb()
+    except Exception:
+        _backend_names = []
+    state["rtl_backends"] = [
+        bk for bk in _backend_names
+        if any((_WORK / p).exists() for p in (f"{bk}/RTL", f"TMIR/{bk}/RTL"))
+    ]
 
     state["provenance"] = (
         _find_newest("TMIR/**/provenance_report.json") or
@@ -157,9 +190,13 @@ def _dm(state: dict) -> list[str]:
         ]
         return lines
 
+    has_ds_cfg   = bool(state.get("data_source_config"))
+    has_raw      = bool(state.get("raw_data"))
+    has_bool_cfg = bool(state.get("booleanisation_config"))
+    has_bool     = bool(state.get("boolean_report"))
     has_cfg  = bool(state.get("training_config"))
     has_tmir = bool(state.get("tmir_npz") or state.get("tmir_yaml"))
-    has_rtl  = bool(state.get("rtl_vanilla_tiled") or state.get("rtl_vanilla_hardwired"))
+    has_rtl  = bool(state.get("rtl_backends"))
     has_prov = bool(state.get("provenance"))
     val_cfg  = state.get("val_config")
     model    = state.get("tmir_npz") or state.get("tmir_yaml")
@@ -168,14 +205,17 @@ def _dm(state: dict) -> list[str]:
     cfg = state.get("training_config")
 
     # ── Nothing here at all ─────────────────────────────────────────────────
-    if not has_cfg and not has_tmir:
+    if not any((has_ds_cfg, has_raw, has_bool_cfg, has_bool, has_cfg, has_tmir)):
         lines += [
             f"{_GOLD}  Nothing here yet.{_RESET}",
             "",
-            f"  Set up your training configuration to begin:",
+            f"  Already have Boolean (0/1) training data? Set up training directly:",
             f"    {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}",
             "",
-            f"  Edit it for your dataset and hyperparameters, then:",
+            f"  Starting from raw (non-Boolean) or external data instead? Begin upstream:",
+            f"    {_CYAN}cp examples/data_source_config.yaml /work/data_source_config.yaml{_RESET}",
+            "",
+            f"  Then, either way:",
             f"    {_CYAN}matador faena{_RESET}",
         ]
         return lines
@@ -186,6 +226,20 @@ def _dm(state: dict) -> list[str]:
 
     lines.append(f"  {'Status':}")
     lines.append(f"  {'─' * 56}")
+
+    # Raw data ingestion (optional — a user with their own Boolean data
+    # skips straight to training config below)
+    if has_raw:
+        lines.append(f"  {tick} raw data ingested  {_DIM}{state['raw_data']}{_RESET}")
+    elif has_ds_cfg:
+        lines.append(f"  {dash} raw data ingested  {_DIM}configured, not yet run{_RESET}")
+
+    # Booleanization (optional — same caveat)
+    if has_bool:
+        report = state["boolean_report"]
+        lines.append(f"  {tick} data booleanized   {_DIM}{report.parent}{_RESET}")
+    elif has_bool_cfg:
+        lines.append(f"  {dash} data booleanized   {_DIM}configured, not yet run{_RESET}")
 
     # Training config
     if has_cfg:
@@ -207,9 +261,7 @@ def _dm(state: dict) -> list[str]:
         lines.append(f"  {dash} model trained    {_DIM}not yet{_RESET}")
 
     # RTL
-    backends = []
-    if state.get("rtl_vanilla_tiled"):     backends.append("vanilla_tiled")
-    if state.get("rtl_vanilla_hardwired"): backends.append("vanilla_hardwired")
+    backends = state.get("rtl_backends", [])
     if backends:
         lines.append(f"  {tick} RTL generated    {_DIM}{' + '.join(backends)}{_RESET}")
     else:
@@ -226,6 +278,43 @@ def _dm(state: dict) -> list[str]:
     # ── Next actions (show everything applicable) ────────────────────────────
     lines.append(f"  {'Available actions':}")
     lines.append(f"  {'─' * 56}")
+
+    if has_ds_cfg and not has_raw:
+        lines += [
+            f"  Fetch/materialize raw data:",
+            f"    {_CYAN}matador ingest --config {state['data_source_config']}{_RESET}",
+            "",
+        ]
+
+    if has_raw and not has_bool:
+        if not has_bool_cfg:
+            lines += [
+                f"  Booleanize the ingested data  {_DIM}(copy a config template first){_RESET}:",
+                f"    {_CYAN}cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml{_RESET}",
+                f"    {_DIM}  point raw_npz at: {state['raw_data']}{_RESET}",
+                f"    {_CYAN}matador booleanize --config /work/booleanisation_config.yaml{_RESET}",
+                "",
+            ]
+        else:
+            lines += [
+                f"  Booleanize the ingested data:",
+                f"    {_CYAN}matador booleanize --config {state['booleanisation_config']}{_RESET}",
+                "",
+            ]
+
+    if has_bool and not has_cfg:
+        report = state["boolean_report"]
+        name = report.name.removesuffix("_report.json")
+        train_txt = report.parent / f"{name}_train.txt"
+        test_txt = report.parent / f"{name}_test.txt"
+        lines += [
+            f"  Train on the booleanized data  {_DIM}(copy a config template first){_RESET}:",
+            f"    {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}",
+            f"    {_DIM}  set train_data: {train_txt}{_RESET}",
+            f"    {_DIM}  set test_data:  {test_txt}{_RESET}",
+            f"    {_CYAN}matador train --config /work/training_config.yaml{_RESET}",
+            "",
+        ]
 
     if has_cfg and not has_tmir:
         lines += [
@@ -250,12 +339,26 @@ def _dm(state: dict) -> list[str]:
                 lines.append(f"    {_DIM}  cp examples/{bk}.yaml /work/{bk}.yaml{_RESET}")
             lines.append("")
         else:
+            from matador.backends.registry import get as _get_backend
+
             for bk in backends:
                 lines += [
                     f"  Simulate RTL ({bk}):",
                     f"    {_CYAN}matador simulate --backend {bk} --config /work/{bk}.yaml{_RESET}",
                     "",
                 ]
+                try:
+                    supports_reprogramming = _get_backend(bk)().supports_reprogramming
+                except Exception:
+                    supports_reprogramming = False
+                if supports_reprogramming:
+                    lines += [
+                        f"  Prove multi-model reprogramming ({bk})  {_DIM}(copy a config template first){_RESET}:",
+                        f"    {_CYAN}cp examples/reprogram_config.yaml /work/reprogram_config.yaml{_RESET}",
+                        f"    {_CYAN}matador reprogram-suite --backend {bk} --config /work/{bk}.yaml "
+                        f"--reprogram-config /work/reprogram_config.yaml{_RESET}",
+                        "",
+                    ]
             lines += [
                 f"  Emulate (software, no simulator needed):",
                 f"    {_CYAN}matador emulate --backend {backends[0]} --config /work/{backends[0]}.yaml --verify{_RESET}",

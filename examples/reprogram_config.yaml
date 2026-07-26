@@ -1,0 +1,40 @@
+# reprogram_config.yaml — multi-model/dataset RTL reprogramming suite
+#
+# Usage:
+#   matador reprogram-suite --backend vanilla_gp_tiled \
+#       --config /work/vanilla_gp_tiled.yaml \
+#       --reprogram-config /work/reprogram_config.yaml
+#
+# Requires `matador generate --backend vanilla_gp_tiled --config
+# /work/vanilla_gp_tiled.yaml` to have already run — this augments an
+# ALREADY-SYNTHESIZED, runtime-reprogrammable bundle with a testbench that
+# reprograms it across the models below in one continuous
+# LOAD -> INFER -> LOAD -> INFER -> ... run, the concrete, checkable proof
+# that it really does reprogram with YOUR models (not just one at a time,
+# and not just the two demo models tb_system_gp.v ships with).
+#
+# Every model listed must fit the capacity synthesized for --config above
+# (max_features/max_clauses_total/max_classes) — a model that doesn't fit
+# fails the same GPCapacityError check `matador generate` itself uses.
+
+steps:
+  # Each step needs `model` (a trained TMIR .yaml/.yml/.npz). Vectors to
+  # replay come from, in priority order:
+  #   1. vectors: a raw bit-vector file (one vector per line, no label)
+  #   2. dataset: a booleanized *_test.txt-shaped file (matador booleanize's
+  #      own output format) — the label column is dropped; RTL is checked
+  #      against the MODEL's own prediction, not the dataset's ground truth
+  #      (n_samples/seed optionally subsample it)
+  #   3. (default, if neither is given) the model's own TMIR
+  #      verification.test_vectors, embedded at training/emulation time
+
+  - model: /work/TMIR/digits.yaml
+    dataset: /work/booleanised/digits_test.txt
+    n_samples: 20
+    seed: 0
+    name: digits
+
+  - model: /work/TMIR/sports.yaml
+    # no dataset/vectors given -> uses this model's own embedded
+    # verification.test_vectors
+    name: sports

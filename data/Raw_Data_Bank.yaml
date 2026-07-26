@@ -1,0 +1,585 @@
+# =============================================================================
+# raw_sources.yaml  --  raw-data source manifest for the MATADOR booleanised set
+#
+# Every dataset in data.zip is a BOOLEANISED derivative. This file points at the
+# ORIGINAL raw data and specifies enough to fetch + materialise it locally.
+#
+# Compiled 2026-07-25. Link status: every `homepage` and every `urls[].url`
+# below was checked against the live source page on that date. Nothing was
+# byte-downloaded while writing this file, so treat `md5` values as
+# "verify on first fetch" rather than gospel (see defaults.checksum_policy).
+#
+# -----------------------------------------------------------------------------
+# FIELD REFERENCE
+# -----------------------------------------------------------------------------
+# key                unique slug; also the on-disk folder name
+# name               human label
+# enabled            fetcher skips the entry when false
+# status
+#   downloadable     "yes" | "yes_with_auth" | "manual"  (quote it: bare yes -> bool)   -- can a script get it?
+#   direct_url       true if a plain GET yields the bytes (no JS, no login)
+#   checked          ISO date the URL was last confirmed to resolve
+# source
+#   kind             http_files | http_zip | http_tar | python_pkg
+#   homepage         landing page a human should read first
+#   urls[]           .url .filename .role (train|test|all|meta) .md5 (optional)
+#   mirrors[]        alternate URL prefixes, tried in order on failure
+#   api              optional programmatic alternative (one-liner)
+# extract
+#   archive          none | zip | tar.gz | gzip
+#   inner_archive    path of a nested archive to unpack after the outer one
+#   members[]        glob(s) of files to keep; empty = keep everything
+# parse
+#   reader           csv | idx | cifar_pickle | wav_dir | dir_of_csv | dir_of_txt
+#   delimiter        field separator for text readers
+#   header           true if row 0 is column names
+#   na_values[]      strings to treat as missing
+#   label_column     index of the target column (negative = from the end)
+#   label_map        literal -> integer mapping, when labels are strings
+#   drop_columns[]   indices to discard (ids, timestamps)
+#   dtype            numpy dtype for the feature matrix
+# split
+#   mode             predefined | random | by_member
+#   train[] / test[] globs, when mode is predefined or by_member
+#   test_size/seed/stratify   when mode is random
+# expect             sanity checks; fetcher should warn on mismatch
+# export
+#   formats[]        npz | csv | parquet | keep_files
+#   path             destination, {key} and {output_dir} expand
+# booleanised        what the copy in data.zip looks like, for cross-checking
+# license / citation
+# notes              anything a fetcher author needs to know
+# =============================================================================
+
+schema_version: 1
+
+defaults:
+  cache_dir: ./_cache          # downloaded archives land here
+  output_dir: ./raw            # materialised arrays land here
+  output_format: npz
+  checksum_policy: record      # record | warn | enforce
+  user_agent: "matador-fetch/1.0"
+  retries: 3
+  timeout_s: 120
+
+datasets:
+
+  # ---------------------------------------------------------------------------
+  - key: digits
+    name: Optical Recognition of Handwritten Digits (optdigits)
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/80/optical+recognition+of+handwritten+digits
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/80/optical+recognition+of+handwritten+digits.zip
+          filename: optdigits.zip
+          role: all
+      mirrors:
+        - https://archive.ics.uci.edu/ml/machine-learning-databases/optdigits/
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=80)"
+    extract:
+      archive: zip
+      members: ["optdigits.tra", "optdigits.tes"]
+    parse:
+      reader: csv
+      delimiter: ","
+      header: false
+      label_column: -1
+      dtype: uint8
+    split:
+      mode: random           # NOT the UCI tra/tes split -- see notes
+      source_member: "optdigits.tes"
+      test_size: 0.2
+      seed: 0
+      stratify: true
+    expect: {n_rows: 1797, n_features_raw: 64, n_classes: 10, value_range: [0, 16]}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["Digits/Digits_train.txt", "Digits/Digits_test.txt"]
+      shape: {train: 1437, test: 360, bits: 512, classes: 10}
+      encoding: "64 features x 8 bits (values 0..16 thermometer/binary coded)"
+    license: CC BY 4.0
+    citation: "Alpaydin, E. & Kaynak, C. (1998). Optical Recognition of Handwritten Digits. UCI ML Repository. doi:10.24432/C50P49"
+    notes: |
+      1437 + 360 = 1797, which is optdigits.tes only -- i.e. scikit-learn's
+      sklearn.datasets.load_digits() (it ships exactly that 1797x64 file), split
+      80/20. The full UCI archive is 5620 rows (3823 tra + 1797 tes).
+      Easiest reproduction path is `from sklearn.datasets import load_digits`
+      (offline, no network); the UCI zip is the true upstream.
+
+  # ---------------------------------------------------------------------------
+  - key: sports
+    name: Daily and Sports Activities (DSA)
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/256/daily+and+sports+activities
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/256/daily+and+sports+activities.zip
+          filename: dsa.zip
+          role: all
+      mirrors:
+        - https://archive.ics.uci.edu/ml/machine-learning-databases/00256/
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=256)"
+    extract:
+      archive: zip
+      members: ["**/a[0-9][0-9]/p[1-8]/s[0-9][0-9].txt"]
+    parse:
+      reader: dir_of_txt      # one 125x45 segment per file
+      delimiter: ","
+      header: false
+      label_from_path: "a(\\d+)"     # activity id comes from the folder name
+      dtype: float32
+    split: {mode: random, test_size: 0.2, seed: 0, stratify: true}
+    expect:
+      n_segments_full: 9120          # 19 activities x 8 subjects x 60 segments
+      segment_shape: [125, 45]
+      n_classes_full: 19
+      subset_used: {activities: 10, n_segments: 4800}
+    export: {formats: [npz], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["Sports/Sport_train.txt", "Sports/Sport_test.txt"]
+      shape: {train: 3839, test: 960, bits: 300, classes: 10}
+      encoding: "30 window features x 10 bits (dimensions.txt says '30', file has 300 columns)"
+    license: CC BY 4.0
+    citation: "Barshan, B. & Altun, K. (2010). Daily and Sports Activities. UCI ML Repository. doi:10.24432/C5C59F"
+    notes: |
+      Upstream is 19 activities; the booleanised copy keeps 10 (3839+960 = 4799,
+      one short of 10 x 8 x 60 = 4800). WHICH ten is not recorded anywhere in
+      data.zip -- a01..a10 is the obvious guess but is unverified. Per-segment
+      features (min/max/mean/std/skew/kurtosis over the window) must be
+      recomputed; the download step itself is fully automatable.
+
+  # ---------------------------------------------------------------------------
+  - key: statlog
+    name: Statlog (Vehicle Silhouettes)
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/149/statlog+vehicle+silhouettes
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/149/statlog+vehicle+silhouettes.zip
+          filename: vehicle.zip
+          role: all
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=149)"
+    extract:
+      archive: zip
+      members: ["**/xa*.dat"]          # 9 files, xaa..xai
+    parse:
+      reader: csv
+      delimiter: " "
+      header: false
+      label_column: -1
+      label_map: {opel: 0, saab: 1, bus: 2, van: 3}
+      dtype: int32
+    split: {mode: random, test_size: 0.2, seed: 0, stratify: true}
+    expect: {n_rows: 846, n_features_raw: 18, n_classes: 4}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["Statlog/Statlog_train.txt", "Statlog/Statlog_test.txt"]
+      shape: {train: 676, test: 170, bits: 288, classes: 4}
+      encoding: "18 features x 16 bits"
+    license: CC BY 4.0
+    citation: "Mowforth, P. & Shepherd, B. Statlog (Vehicle Silhouettes). UCI ML Repository. doi:10.24432/C5HG6N"
+    notes: |
+      676 + 170 = 846 = the whole dataset, 80/20 split. The nine xa*.dat shards
+      must be concatenated. Rows are whitespace-delimited with a trailing string
+      class label; label_map above assumes the 0..3 ordering used in the
+      booleanised file, which is a guess -- confirm against class counts
+      (booleanised train counts are 159/169/166/182).
+
+  # ---------------------------------------------------------------------------
+  - key: gesture_phase
+    name: Gesture Phase Segmentation
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/302/gesture+phase+segmentation
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/302/gesture+phase+segmentation.zip
+          filename: gesture_phase.zip
+          role: all
+      mirrors:
+        - https://archive.ics.uci.edu/ml/machine-learning-databases/00302/
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=302)"
+    extract:
+      archive: zip
+      members: ["*_raw.csv", "*_va3.csv"]     # 7 videos x 2 files
+    parse:
+      reader: dir_of_csv
+      delimiter: ","
+      header: true
+      label_column: -1
+      label_map: {Rest: 0, Preparation: 1, Stroke: 2, Hold: 3, Retraction: 4}
+      drop_columns: ["timestamp"]
+      dtype: float32
+    split:
+      mode: random
+      source_member: "a1_va3.csv"   # see notes -- the 1747-row file
+      test_size: 0.2
+      seed: 0
+      stratify: false
+    expect:
+      n_rows_all_videos: 9900
+      n_features_raw: {raw_file: 18, processed_file: 32}
+      n_classes: 5
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["Gesture Phase/Gesture_train.txt", "Gesture Phase/Gesture_test.txt"]
+      shape: {train: 1397, test: 350, bits: 212, classes: 5}
+    license: CC BY 4.0
+    citation: "Madeo, R., Peres, S., Lima, C. (2014). Gesture Phase Segmentation. UCI ML Repository. doi:10.24432/C5Z32C"
+    notes: |
+      1397 + 350 = 1747 = ONE video's file, not the whole 9900-row dataset.
+      The per-video row counts sum to 9900 across a1/a2/a3/b1/b3/c1/c3; a1 is
+      the usual first choice and is the assumption encoded above. The fetcher
+      should assert 1747 rows and fall back to scanning all 14 files for the one
+      with that count. 212 bits is not a clean multiple of 18 or 32, so the
+      booleanisation dropped or re-derived columns -- unrecoverable from here.
+
+  # ---------------------------------------------------------------------------
+  - key: human_activity
+    name: Human Activity Recognition Using Smartphones (UCI HAR)
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/240/human+activity+recognition+using+smartphones
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/240/human+activity+recognition+using+smartphones.zip
+          filename: uci_har.zip
+          role: all
+          approx_size: 58.2MB
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=240)"
+    extract:
+      archive: zip
+      inner_archive: "UCI HAR Dataset.zip"     # NESTED: outer zip holds a zip
+      members:
+        - "UCI HAR Dataset/train/X_train.txt"
+        - "UCI HAR Dataset/train/y_train.txt"
+        - "UCI HAR Dataset/train/subject_train.txt"
+        - "UCI HAR Dataset/test/X_test.txt"
+        - "UCI HAR Dataset/test/y_test.txt"
+        - "UCI HAR Dataset/test/subject_test.txt"
+        - "UCI HAR Dataset/features.txt"
+        - "UCI HAR Dataset/activity_labels.txt"
+    parse:
+      reader: csv
+      delimiter: whitespace
+      header: false
+      label_file: true            # y is a separate file, not a column
+      dtype: float32
+    split:
+      mode: predefined
+      train: ["**/train/X_train.txt"]
+      test:  ["**/test/X_test.txt"]
+    expect: {n_train: 7352, n_test: 2947, n_features_raw: 561, n_classes: 6}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["Human Activity/Human_train.txt", "Human Activity/Human_test.txt"]
+      shape: {train: 7352, test: 2947, bits: 816, classes: 6}
+      encoding: "561 features -> 816 bits (not a clean multiple; feature subset + per-feature bit widths)"
+    license: CC BY 4.0
+    citation: "Reyes-Ortiz, J. et al. (2013). Human Activity Recognition Using Smartphones. UCI ML Repository. doi:10.24432/C54S4K"
+    notes: |
+      Cleanest match in the whole set: 7352/2947 is the official UCI split,
+      reproduced exactly. Note the double-zip -- the outer archive contains
+      "UCI HAR Dataset.zip" plus a .names file, so the fetcher needs one level
+      of nested extraction. Prefer the zip over fetch_ucirepo(240): the API
+      flattens the data and does not preserve the train/test partition.
+
+  # ---------------------------------------------------------------------------
+  - key: mammographic
+    name: Mammographic Mass
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/161/mammographic+mass
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/161/mammographic+mass.zip
+          filename: mammographic_mass.zip
+          role: all
+      mirrors:
+        - https://archive.ics.uci.edu/ml/machine-learning-databases/mammographic-masses/
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=161)"
+    extract:
+      archive: zip
+      members: ["mammographic_masses.data"]
+    parse:
+      reader: csv
+      delimiter: ","
+      header: false
+      na_values: ["?"]
+      label_column: -1
+      dtype: float32
+      column_names: [birads, age, shape, margin, density, severity]
+    split: {mode: random, test_size: 0.2, seed: 0, stratify: true}
+    expect: {n_rows: 961, n_features_raw: 5, n_classes: 2, class_counts: {0: 516, 1: 445}}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["Mammographic Mass/mammo_train.txt", "Mammographic Mass/mammo_test.txt"]
+      shape: {train: 768, test: 193, bits: 40, classes: 2}
+      encoding: "5 features x 8 bits"
+    license: CC BY 4.0
+    citation: "Elter, M. (2007). Mammographic Mass. UCI ML Repository. doi:10.24432/C53K6Z"
+    notes: |
+      768 + 193 = 961 = full dataset, 80/20. Has '?' missing values in every
+      column; the booleanised copy has none, so an imputation step happened
+      before booleanisation (median/mode is the usual choice). BI-RADS is a
+      non-predictive assessment field -- some published pipelines drop it,
+      but 40 bits / 8 = 5 columns suggests it was KEPT and density dropped, or
+      vice versa. Worth pinning down before you claim comparability.
+
+  # ---------------------------------------------------------------------------
+  - key: emg
+    name: EMG Data for Gestures
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/481/emg+data+for+gestures
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/481/emg+data+for+gestures.zip
+          filename: emg_gestures.zip
+          role: all
+      mirrors:
+        - https://archive.ics.uci.edu/ml/machine-learning-databases/00481/
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=481)"
+    extract:
+      archive: zip
+      members: ["**/*_raw_data_*.txt"]     # 36 subject folders, 2 files each
+    parse:
+      reader: dir_of_txt
+      delimiter: "\t"
+      header: true
+      drop_columns: [0]                    # column 0 is time in ms
+      label_column: -1                     # column 9 is the gesture class
+      dtype: float32
+    split: {mode: random, test_size: 0.2, seed: 0, stratify: true}
+    expect:
+      n_subjects: 36
+      channels: 8
+      classes_upstream: {0: unmarked, 1: hand_at_rest, 2: fist, 3: wrist_flexion,
+                         4: wrist_extension, 5: radial_deviation, 6: ulnar_deviation,
+                         7: extended_palm}
+    export: {formats: [npz], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["EMG/EMG_train.txt", "EMG/EMG_test.txt"]
+      shape: {train: 45694, test: 11424, bits: 96, classes: 7}
+      encoding: "8 channels x 12 bits, one RMS value per channel per window"
+    license: CC BY 4.0
+    citation: "Krilova, N., Kastalskiy, I., Kazantsev, V., Makarov, V., Lobov, S. (2018). EMG Data for Gestures. UCI ML Repository. doi:10.24432/C5ZP5C"
+    notes: |
+      Class 7 (extended palm) was dropped -- it was not performed by all
+      subjects -- leaving 0..6, which matches the booleanised label set. Class 0
+      (unmarked) dominates at ~66%, same as upstream. Raw signal is per-sample;
+      the 57118 rows come from RMS over a rolling window, so window length and
+      stride are free parameters you will have to re-choose. Download itself is
+      a single zip and fully automatable.
+
+  # ---------------------------------------------------------------------------
+  - key: sensorless_drive
+    name: Dataset for Sensorless Drive Diagnosis
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/325/dataset+for+sensorless+drive+diagnosis
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/325/dataset+for+sensorless+drive+diagnosis.zip
+          filename: sensorless_drive.zip
+          role: all
+      mirrors:
+        - https://archive.ics.uci.edu/ml/machine-learning-databases/00325/
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=325)"
+    extract:
+      archive: zip
+      members: ["Sensorless_drive_diagnosis.txt"]
+    parse:
+      reader: csv
+      delimiter: " "
+      header: false
+      label_column: -1
+      dtype: float32
+    split: {mode: random, test_size: 0.2, seed: 0, stratify: true}
+    expect: {n_rows: 58509, n_features_raw: 48, n_classes: 11}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["Sensorless Drive/sensorless_train.txt", "Sensorless Drive/sensorless_test.txt"]
+      shape: {train: 46807, test: 11702, bits: 480, classes: 11}
+      encoding: "48 features x 10 bits; labels are 1..11 (not 0-indexed)"
+    license: CC BY 4.0
+    citation: "Bator, M. (2013). Dataset for Sensorless Drive Diagnosis. UCI ML Repository. doi:10.24432/C5VP5F"
+    notes: |
+      46807 + 11702 = 58509 = full dataset; 46807 is exactly 80%, so a plain
+      stratified 80/20 split reproduces the partition (row-for-row identity
+      needs the original seed, which is not recorded).
+      Dataset Dimensions.txt says 12 classes -- it is 11, labelled 1..11.
+
+  # ---------------------------------------------------------------------------
+  - key: mnist
+    name: MNIST handwritten digits
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_files
+      homepage: https://yann.lecun.com/exdb/mnist/
+      urls:
+        - url: https://ossci-datasets.s3.amazonaws.com/mnist/train-images-idx3-ubyte.gz
+          filename: train-images-idx3-ubyte.gz
+          role: train_X
+          md5: f68b3c2dcbeaaa9fbdd348bbdeb94873
+        - url: https://ossci-datasets.s3.amazonaws.com/mnist/train-labels-idx1-ubyte.gz
+          filename: train-labels-idx1-ubyte.gz
+          role: train_y
+          md5: d53e105ee54ea40749a09fcbcd1e9432
+        - url: https://ossci-datasets.s3.amazonaws.com/mnist/t10k-images-idx3-ubyte.gz
+          filename: t10k-images-idx3-ubyte.gz
+          role: test_X
+        - url: https://ossci-datasets.s3.amazonaws.com/mnist/t10k-labels-idx1-ubyte.gz
+          filename: t10k-labels-idx1-ubyte.gz
+          role: test_y
+      mirrors:
+        - https://raw.githubusercontent.com/fgnt/mnist/master/
+      api: "torchvision.datasets.MNIST(root, download=True)  # or HF: ylecun/mnist"
+    extract: {archive: gzip}
+    parse: {reader: idx, dtype: uint8}
+    split:
+      mode: predefined
+      train: [train_X, train_y]
+      test: [test_X, test_y]
+    expect: {n_train: 60000, n_test: 10000, image_shape: [28, 28], n_classes: 10}
+    export: {formats: [npz], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["MNIST/mnist_train.txt", "MNIST/mnist_test.txt"]
+      shape: {train: 60000, test: 9999, bits: 784, classes: 10}
+      encoding: "1 bit per pixel, fixed threshold on the 0..255 grey value"
+    license: "CC BY-SA 3.0 (as stated by the original distributors)"
+    citation: "LeCun, Y., Cortes, C., Burges, C. The MNIST database of handwritten digits."
+    notes: |
+      Do NOT point at yann.lecun.com: it returns 403 to scripted GETs and has
+      done for a couple of years. The S3 URLs above are the mirror torchvision
+      itself falls back to, and are the reliable choice.
+      The booleanised test file has 9999 rows, not 10000 -- one sample was lost
+      somewhere in the pipeline. Expect an off-by-one when you re-derive it.
+
+  # ---------------------------------------------------------------------------
+  - key: cifar2
+    name: CIFAR-2 (CIFAR-10 regrouped, greyscale)
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_tar
+      homepage: https://www.cs.toronto.edu/~kriz/cifar.html
+      urls:
+        - url: https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz
+          filename: cifar-10-python.tar.gz
+          role: all
+          md5: c58f30108f718f92721af3b95e74349a
+          approx_size: 163MB
+      mirrors:
+        - https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz
+      api: "torchvision.datasets.CIFAR10(root, download=True)"
+    extract:
+      archive: tar.gz
+      members: ["cifar-10-batches-py/data_batch_*", "cifar-10-batches-py/test_batch",
+                "cifar-10-batches-py/batches.meta"]
+    parse:
+      reader: cifar_pickle
+      dtype: uint8
+      relabel:                      # 10 classes -> 2 superclasses
+        0: {vehicles: [0, 1, 8, 9]}   # airplane, automobile, ship, truck
+        1: {animals:  [2, 3, 4, 5, 6, 7]}  # bird, cat, deer, dog, frog, horse
+      to_greyscale: true            # 3x32x32 -> 32x32
+    split:
+      mode: predefined
+      train: ["data_batch_*"]
+      test: ["test_batch"]
+    expect:
+      n_train: 50000
+      n_test: 10000
+      class_counts_test: {0: 4000, 1: 6000}
+      image_shape_out: [32, 32]
+    export: {formats: [npz], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["CIFAR-2_grayscale/cifar2_train.txt", "CIFAR-2_grayscale/cifar2_test.txt"]
+      shape: {train: 50000, test: 10000, bits: 1024, classes: 2}
+      encoding: "32x32 greyscale, 1 bit per pixel"
+    license: "No formal licence; free for research use, cite the tech report"
+    citation: "Krizhevsky, A. (2009). Learning Multiple Layers of Features from Tiny Images. Tech report, University of Toronto."
+    notes: |
+      Not a 2-class subset: it is ALL 60000 CIFAR-10 images relabelled into
+      animals vs vehicles, which is why the counts are 50000/10000 rather than
+      10000/2000. The 20000/30000 and 4000/6000 class splits in the booleanised
+      files confirm the grouping above (4 vehicle classes -> 0, 6 animal
+      classes -> 1). Greyscale conversion weights are not recorded; ITU-R
+      BT.601 luma is the standard assumption.
+
+  # ---------------------------------------------------------------------------
+  - key: kws2
+    name: Google Speech Commands (yes/no subset)
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
+    source:
+      kind: http_tar
+      homepage: https://arxiv.org/abs/1804.03209
+      urls:
+        - url: http://download.tensorflow.org/data/speech_commands_v0.02.tar.gz
+          filename: speech_commands_v0.02.tar.gz
+          role: all
+          approx_size: 2.7GB
+        - url: http://download.tensorflow.org/data/speech_commands_test_set_v0.02.tar.gz
+          filename: speech_commands_test_set_v0.02.tar.gz
+          role: test
+      mirrors:
+        - http://download.tensorflow.org/data/speech_commands_v0.01.tar.gz
+      api: "tensorflow_datasets.load('speech_commands')  # or HF: speech_commands"
+    extract:
+      archive: tar.gz
+      members: ["yes/*.wav", "no/*.wav", "_background_noise_/*.wav",
+                "validation_list.txt", "testing_list.txt"]
+    parse:
+      reader: wav_dir
+      sample_rate: 16000
+      bit_depth: 16
+      channels: 1
+      label_from_path: "^(yes|no)/"
+    split:
+      mode: predefined
+      spec_files: ["validation_list.txt", "testing_list.txt"]   # official speaker-disjoint lists
+    expect:
+      n_files_total: 105829
+      n_yes: 4044
+      n_no: 3941
+      clip_length_s: 1.0
+    export: {formats: [keep_files, npz], path: "{output_dir}/{key}"}
+    booleanised:
+      files: ["Google_Speech_Commands_yes_no/kws2_train.txt", "Google_Speech_Commands_yes_no/kws2_test.txt"]
+      shape: {train: 1600, test: 400, bits: 377, classes: 2}
+      encoding: "377 bits from an MFCC-style time-frequency feature block"
+    license: CC BY 4.0
+    citation: "Warden, P. (2018). Speech Commands: A Dataset for Limited-Vocabulary Speech Recognition. arXiv:1804.03209"
+    notes: |
+      Heaviest download by far (~2.7GB gz, ~3.8GB unpacked) for 2000 clips you
+      actually use -- the tar has no per-word slice, so you fetch the lot and
+      filter, or pull just the yes/no folders from the HuggingFace parquet
+      mirror if bandwidth matters.
+      The MATADOR paper's KWS is 6 keywords (yes/no/up/down/left/right, "KWS6");
+      the copy in data.zip is the 2-keyword variant at the same 377-bit width.
+      800 clips per class train + 200 per class test = a balanced subsample, not
+      the official speaker-disjoint split, so re-deriving it exactly is not
+      possible without the original sampling seed.
+
+# =============================================================================
+# NOT A DATASET -- for completeness
+#
+# data/existing_model_trial.zip holds trained Tsetlin Machine artefacts
+# (TAs_*.txt = Tsetlin automata states, weigths_*.txt, training_config.json)
+# plus Vivado scratch dirs. No raw-data counterpart; nothing to fetch.
+# =============================================================================

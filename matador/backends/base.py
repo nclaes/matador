@@ -46,6 +46,22 @@ class ResourceEstimate:
     notes:        str = ""
 
 
+@dataclass
+class ReprogramStep:
+    """One {model, vectors} step in a multi-model/dataset reprogramming
+    sequence (see RTLBackend.build_reprogram_suite). Vector source
+    precedence: vectors_path (raw bit-vector file) > dataset_path
+    (booleanized *_test.txt-shaped file; label column stripped, optionally
+    subsampled) > the step's own TMIR's embedded verification.test_vectors
+    (the default when neither is given)."""
+    tmir_path:    Path
+    dataset_path: "Path | None" = None
+    vectors_path: "Path | None" = None
+    n_samples:    "int | None" = None
+    seed:         int = 0
+    name:         "str | None" = None
+
+
 # ---------------------------------------------------------------------------
 # Abstract base classes
 # ---------------------------------------------------------------------------
@@ -113,6 +129,27 @@ class RTLBackend(ABC):
     def emulator_class(self):
         """Return the CycleAccurateModel class paired with this backend, or None."""
         return None
+
+    @property
+    def supports_reprogramming(self) -> bool:
+        """True for backends whose synthesized RTL can be reprogrammed at
+        runtime with a different model (no resynthesis) — see
+        build_reprogram_suite. False by default; vanilla_tiled/
+        vanilla_hardwired bake weights into RTL per model and don't
+        override this."""
+        return False
+
+    def build_reprogram_suite(self, rtl_dir: Path, steps: "list[ReprogramStep]", config) -> RTLArtifacts:
+        """Build testbenches/stimulus that exercise an ALREADY-GENERATED
+        reprogrammable bundle (rtl_dir, from a prior generate() call) across
+        multiple models/datasets in one continuous reprogram-and-verify run
+        — the concrete, checkable answer to "can this be reprogrammed with
+        MY models" for more than one model at a time.
+
+        Only meaningful when supports_reprogramming is True; the default
+        implementation raises for every other backend.
+        """
+        raise NotImplementedError(f"{self.name} does not support runtime reprogramming.")
 
 
 class CycleAccurateModel(ABC):
