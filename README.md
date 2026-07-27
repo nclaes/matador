@@ -8,15 +8,31 @@ simulation, emulation, and reproducibility tooling — and, upstream of training
 fetch/booleanize raw data in the first place.
 
 ```bash
-matador ingest      --config /work/data_source_config.yaml    # optional: raw data -> npz
-matador booleanize  --config /work/booleanisation_config.yaml # optional: npz -> Boolean train/test
+matador ingest      --dataset digits --output-dir /work/raw   # optional: fetch a registered dataset -> npz
+matador booleanize  --dataset digits --raw-dir /work/raw      # optional: npz -> Boolean train/test
 matador train        --config /work/training_config.yaml
 matador generate     --backend vanilla_tiled --config /work/vanilla_tiled.yaml
 matador simulate     --backend vanilla_tiled --config /work/vanilla_tiled.yaml
 ```
 
+Own or unregistered data instead? `matador ingest --config data_source_config.yaml` /
+`matador booleanize --config booleanisation_config.yaml` take the same shape as a
+registered dataset, just described by you — see [docs/Usage.md](docs/Usage.md).
+
 Not sure where to start? `matador faena` is an interactive wizard that walks through
 whichever of the above your workspace doesn't have yet.
+
+---
+
+## Everyday commands
+
+```bash
+matador                    # splash + workspace dashboard (interactive terminal only)
+matador status              # same dashboard, non-interactive (scripts/CI)
+matador registry            # browse every registered dataset + accelerator backend
+matador faena                # interactive wizard -- walks through whatever's missing
+matador clean --dry-run      # preview a full workspace reset (nothing removed without confirmation)
+```
 
 ---
 
