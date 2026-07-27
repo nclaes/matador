@@ -32,7 +32,7 @@ make shell WORK_DIR=/path/to/your/data
 # Inside the container
 matador version          # prints version string
 matador                  # splash screen + workspace status
-matador list-backends    # lists registered RTL backends
+matador registry         # lists registered backends + datasets (list-backends/list-datasets individually too)
 ```
 
 ## GTKWave (waveform viewer)

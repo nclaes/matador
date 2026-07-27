@@ -1,7 +1,7 @@
 # tiled_config.yaml — Tiled accelerator backend configuration
 #
 # Usage:
-#   matador generate --backend tiled --config examples/tiled_config.yaml
+#   matador generate --backend vanilla_tiled --config examples/tiled_config.yaml
 #
 # Architecture: sequential FSM iterates over (N_FEAT_SLICES × N_CLAUSE_SLICES)
 # tiles per inference, reading Include-action bits from an on-chip tile ROM
@@ -10,7 +10,7 @@
 # Prerequisites: a trained TMIR model at model_path (from `matador train`).
 
 # Path to the trained TMIR model file (.yaml or .npz).
-model_path: /work/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+model_path: /work/TMIR/<model_name>/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
 
 # Root output directory.  RTL is written to <output_dir>/RTL/.
 output_dir: /work

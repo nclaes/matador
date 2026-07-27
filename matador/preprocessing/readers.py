@@ -57,10 +57,17 @@ def _resolve_drop_columns(drop_columns: list, header: "list[str] | None", ncols:
     return out
 
 
-def _rows_to_xy(rows: list[list[str]], header: "list[str] | None", spec: ParseSpec) -> tuple[np.ndarray, "np.ndarray | None"]:
+def _rows_to_xy(
+    rows: list[list[str]], header: "list[str] | None", spec: ParseSpec, source: "str | None" = None
+) -> tuple[np.ndarray, "np.ndarray | None", list[str]]:
     if not rows:
-        return np.empty((0, 0), dtype=np.dtype(spec.dtype)), None
+        return np.empty((0, 0), dtype=np.dtype(spec.dtype)), None, []
 
+    # ncols is taken from the first row and assumed uniform for the rest --
+    # true for well-formed data, but real-world dumps sometimes have a
+    # truncated/malformed line (e.g. a write cut short at EOF) with fewer
+    # tokens than every other row. Rather than crash the whole ingest on one
+    # bad line, skip it and surface the count as a warning.
     ncols = len(rows[0])
     drop_idx = _resolve_drop_columns(spec.drop_columns, header, ncols)
     label_idx = None
@@ -70,7 +77,11 @@ def _rows_to_xy(rows: list[list[str]], header: "list[str] | None", spec: ParseSp
 
     X_rows: list[list[float]] = []
     y_vals: list[int] = []
+    n_skipped = 0
     for row in rows:
+        if len(row) != ncols:
+            n_skipped += 1
+            continue
         feats = [np.nan if row[i] in spec.na_values else float(row[i]) for i in feat_idx]
         X_rows.append(feats)
         if label_idx is not None:
@@ -79,7 +90,11 @@ def _rows_to_xy(rows: list[list[str]], header: "list[str] | None", spec: ParseSp
 
     X = np.asarray(X_rows, dtype=np.dtype(spec.dtype))
     y = np.asarray(y_vals, dtype=np.int64) if y_vals else None
-    return X, y
+    warnings: list[str] = []
+    if n_skipped:
+        where = f" in {source}" if source else ""
+        warnings.append(f"skipped {n_skipped} malformed row(s){where}: expected {ncols} columns, got a different count")
+    return X, y, warnings
 
 
 def _sibling_label_path(x_path: Path) -> Path:
@@ -96,7 +111,7 @@ def _sibling_label_path(x_path: Path) -> Path:
 
 
 def _relative_strings(paths: list[Path]) -> dict[Path, str]:
-    """label_from_path patterns (e.g. kws2's anchored "^(yes|no)/") are
+    """label_from_path patterns (e.g. an anchored "^(yes|no)/") are
     written against a path relative to the dataset's own extraction root,
     not the absolute filesystem path -- derive that root as the common
     ancestor of the files actually being read, so callers don't need to
@@ -116,9 +131,11 @@ def read_csv(paths: list[Path], spec: ParseSpec) -> tuple[np.ndarray, "np.ndarra
     column and parse.label_file=True (label lives in a sibling file)."""
     X_parts: list[np.ndarray] = []
     y_parts: list[np.ndarray] = []
+    warnings: list[str] = []
     for path in paths:
         header, rows = _read_delimited_rows(path, spec)
-        X, y = _rows_to_xy(rows, header, spec)
+        X, y, row_warnings = _rows_to_xy(rows, header, spec, source=path.name)
+        warnings.extend(row_warnings)
         if spec.label_file:
             y = _read_label_file(_sibling_label_path(path))
         X_parts.append(X)
@@ -126,7 +143,7 @@ def read_csv(paths: list[Path], spec: ParseSpec) -> tuple[np.ndarray, "np.ndarra
             y_parts.append(y)
     X = np.concatenate(X_parts, axis=0) if X_parts else np.empty((0, 0))
     y = np.concatenate(y_parts, axis=0) if y_parts else None
-    return X, y, {"n_files": len(paths)}
+    return X, y, {"n_files": len(paths), "warnings": warnings}
 
 
 def _assign_path_labels(groups: list[str], label_map: dict[str, int]) -> list[int]:
@@ -222,8 +239,8 @@ def read_cifar_pickle(paths: list[Path], spec: ParseSpec) -> tuple[np.ndarray, "
     y = np.concatenate(y_parts, axis=0) if y_parts else np.empty((0,), dtype=np.int64)
 
     if spec.to_greyscale:
-        # ITU-R BT.601 luma weights — the standard assumption per the
-        # catalog's own notes for cifar2 (exact weights were never recorded).
+        # ITU-R BT.601 luma weights — the standard assumption when a
+        # dataset's own greyscale conversion weights aren't recorded.
         X = np.tensordot(X.astype(np.float32), [0.299, 0.587, 0.114], axes=([1], [0]))
         X = X.reshape(X.shape[0], -1).astype(np.dtype(spec.dtype))
     else:
@@ -243,9 +260,8 @@ def read_cifar_pickle(paths: list[Path], spec: ParseSpec) -> tuple[np.ndarray, "
 # ---------------------------------------------------------------------------
 # wav_dir — fixed-length raw PCM sample reader (stdlib `wave` only; no DSP
 # feature extraction — turning this into e.g. MFCCs is a booleanization-time
-# concern, out of scope for raw ingestion, and the catalog's own notes
-# already flag kws2's exact 377-bit encoding as unreproducible without the
-# original feature pipeline).
+# concern, out of scope for raw ingestion; an MFCC-style bit encoding is
+# generally unreproducible without the original feature pipeline).
 # ---------------------------------------------------------------------------
 
 def read_wav_dir(paths: list[Path], spec: ParseSpec) -> tuple[np.ndarray, "np.ndarray | None", dict[str, Any]]:

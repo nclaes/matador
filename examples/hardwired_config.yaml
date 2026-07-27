@@ -1,7 +1,7 @@
 # hardwired_config.yaml — Hardwired accelerator backend configuration
 #
 # Usage:
-#   matador generate --backend hardwired --config examples/hardwired_config.yaml
+#   matador generate --backend vanilla_hardwired --config examples/hardwired_config.yaml
 #
 # Architecture
 # ------------
@@ -32,8 +32,8 @@
 
 # Path to the trained TMIR model file (.yaml or .npz).
 # The model produced by `matador train` is written to:
-#   <output_dir>/TMIR/TM_TMIR_Clauses_<N>_...yaml
-model_path: /work/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+#   <output_dir>/TMIR/<model_name>/TM_TMIR_Clauses_<N>_...yaml
+model_path: /work/TMIR/<model_name>/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
 
 # Root output directory. RTL is written to <output_dir>/RTL/.
 # Subdirectories created automatically:

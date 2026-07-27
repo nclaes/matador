@@ -39,9 +39,12 @@ def faena() -> None:
 
     if has_model:
         click.echo("")
-        click.echo("  Skip straight to RTL generation:")
-        click.echo("    Copy and edit:  cp examples/generate_config.yaml /work/generate_config.yaml")
-        click.echo("    Then run:       matador generate --config /work/generate_config.yaml")
+        click.echo("  Skip straight to RTL generation. Pick a backend:")
+        click.echo("    matador list-backends")
+        click.echo("")
+        click.echo("  Then, for the one you picked:")
+        click.echo("    cp examples/<backend>.yaml /work/<backend>.yaml")
+        click.echo("    matador generate --backend <backend> --config /work/<backend>.yaml")
         return
 
     has_boolean_data = click.confirm(
@@ -57,19 +60,25 @@ def faena() -> None:
 
         if not has_raw_data:
             click.echo("")
-            click.echo("  Step 0 — describe where your raw data is (local path, or a URL):")
-            click.echo("    cp examples/data_source_config.yaml /work/data_source_config.yaml")
-            click.echo("    (or point --config at a {catalog, key} pair into a shared catalog")
-            click.echo("     like data/Raw_Data_Bank.yaml)")
+            click.echo("  Step 0 — check if it's already registered:")
+            click.echo("    matador list-datasets")
             click.echo("")
             click.echo("  Step 1 — fetch/materialize it:")
+            click.echo("    matador ingest --dataset <name> --output-dir /work/raw   # if registered")
+            click.echo("    -- or, if not registered --")
+            click.echo("    cp examples/data_source_config.yaml /work/data_source_config.yaml")
             click.echo("    matador ingest --config /work/data_source_config.yaml --output-dir /work/raw")
             click.echo("    Outputs: /work/raw/<key>.npz")
             click.echo("")
 
         click.echo("  Step 2 — describe how to booleanize it:")
-        click.echo("    cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml")
-        click.echo("    (point raw_npz at the ingest output above, or your own x/y npz)")
+        click.echo("    If registered, inspect a recipe first (verified default, or an")
+        click.echo("    unverified skeleton to edit if it doesn't have one yet):")
+        click.echo("      matador booleanize --dataset <name> --show-recipe > /work/booleanisation_config.yaml")
+        click.echo("    Otherwise, start from scratch:")
+        click.echo("      cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml")
+        click.echo("    Either way: edit it freely, then point raw_npz at the ingest output above")
+        click.echo("    (or your own x/y npz) if it isn't already set correctly.")
         click.echo("")
         click.echo("  Step 3 — booleanize:")
         click.echo("    matador booleanize --config /work/booleanisation_config.yaml")
@@ -84,8 +93,9 @@ def faena() -> None:
     click.echo("")
     click.echo("  Step 5 — train:")
     click.echo("    matador train --config /work/training_config.yaml")
-    click.echo("    Outputs: /work/TMIR/<model>.npz  +  /work/TMIR/validation_config.yaml")
-    click.echo("             /work/TMIR/rom_inference.py  (standalone provenance script)")
+    click.echo("    Outputs: /work/TMIR/<model_name>/<model>.npz  +  .../validation_config.yaml")
+    click.echo("             /work/TMIR/<model_name>/rom_inference.py  (standalone provenance script)")
+    click.echo("    (<model_name> defaults to train_data's filename, e.g. digits_train.txt -> \"digits\")")
     click.echo("")
 
     if has_boolean_data and click.confirm("  Start training now using /work/training_config.yaml?", default=True):
@@ -103,8 +113,8 @@ def _print_toolchain() -> None:
                        "training_config.yaml  →  TMIR (.npz / .yaml)"),
         ("validate",   "Check model accuracy on the held-out test set",
                        "TMIR + test data  →  accuracy report"),
-        ("generate",   "Synthesise Verilog RTL for all configured backends",
-                       "TMIR + generate_config.yaml  →  RTL/"),
+        ("generate",   "Synthesise Verilog RTL (--backend NAME required)",
+                       "TMIR + <backend>.yaml  →  <backend>/RTL/"),
         ("emulate",    "Cycle-accurate software emulator — no simulator needed",
                        "TMIR + config  →  InferenceTrace per sample"),
         ("simulate",   "Compile and run RTL testbenches",
@@ -129,12 +139,18 @@ def _print_toolchain() -> None:
 
 @main.command("ingest")
 @click.option(
+    "--dataset",
+    "dataset_name",
+    default=None,
+    help="Registered dataset key (see `matador list-datasets`). Alternative to --config.",
+)
+@click.option(
     "--config",
     "config_path",
     type=click.Path(path_type=Path),
-    default=Path("/work/data_source_config.yaml"),
-    show_default=True,
-    help="Path to a data_source_config.yaml (standalone spec, or {catalog, key} pointer).",
+    default=None,
+    help="Path to a data_source_config.yaml (standalone spec, or {catalog, key} pointer). "
+         "Alternative to --dataset. Default: /work/data_source_config.yaml",
 )
 @click.option(
     "--output-dir",
@@ -144,30 +160,45 @@ def _print_toolchain() -> None:
     show_default=True,
     help="Where materialized raw arrays are written.",
 )
-def ingest(config_path: Path, output_dir: Path) -> None:
-    """Fetch and materialize raw data described by a data_source_config.yaml.
+def ingest(dataset_name: "str | None", config_path: "Path | None", output_dir: Path) -> None:
+    """Fetch and materialize raw data — either a registered dataset
+    (--dataset, see `matador list-datasets`) or a data_source_config.yaml
+    (--config, for a dataset not in the shared catalog yet).
 
     \b
     Examples:
+      matador ingest --dataset digits --output-dir /work/raw
       matador ingest --config /work/data_source_config.yaml --output-dir /work/raw
 
     \b
-    Config template:
+    Config template (for --config):
       cp examples/data_source_config.yaml /work/data_source_config.yaml
     """
+    from matador.preprocessing import registry
     from matador.preprocessing.ingest import run_ingest
     from matador.preprocessing.sources import resolve_source_config
 
-    if not config_path.exists():
-        raise click.ClickException(
-            f"Config file not found: {config_path}\n"
-            "  Create one based on examples/data_source_config.yaml."
-        )
+    if dataset_name and config_path:
+        raise click.ClickException("Pass either --dataset or --config, not both.")
+    if not dataset_name and not config_path:
+        config_path = Path("/work/data_source_config.yaml")
 
-    try:
-        spec, defaults = resolve_source_config(config_path)
-    except Exception as exc:
-        raise click.ClickException(f"Invalid config: {exc}") from exc
+    if dataset_name:
+        try:
+            spec, defaults = registry.get_dataset_and_defaults(dataset_name)
+        except (KeyError, FileNotFoundError) as exc:
+            raise click.ClickException(str(exc)) from exc
+    else:
+        if not config_path.exists():
+            raise click.ClickException(
+                f"Config file not found: {config_path}\n"
+                "  Create one based on examples/data_source_config.yaml, or use --dataset "
+                "if this is already in the shared catalog (see `matador list-datasets`)."
+            )
+        try:
+            spec, defaults = resolve_source_config(config_path)
+        except Exception as exc:
+            raise click.ClickException(f"Invalid config: {exc}") from exc
 
     click.echo(f"Ingesting {spec.key!r} ({spec.name or spec.key})")
     click.echo(f"  source: {spec.source.kind}")
@@ -187,45 +218,194 @@ def ingest(config_path: Path, output_dir: Path) -> None:
         click.echo(f"  {fmt}: {path}")
     click.echo("")
     click.echo("Next step — booleanize this into train/test files matador train can use:")
-    click.echo("  cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml")
-    click.echo("  matador booleanize --config /work/booleanisation_config.yaml")
+    if dataset_name:
+        click.echo(f"  matador booleanize --dataset {dataset_name} --raw-dir {output_dir}")
+    else:
+        click.echo("  cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml")
+        click.echo("  matador booleanize --config /work/booleanisation_config.yaml")
+
+
+def _format_encoder_spec(spec) -> str:
+    """One-line human summary of a FeatureEncoderSpec, e.g.
+    'thermometer(bits=8, range=[0.0, 16.0])'."""
+    parts = []
+    if spec.bits is not None:
+        parts.append(f"bits={spec.bits}")
+    if spec.range is not None:
+        parts.append(f"range={list(spec.range)}")
+    if spec.bins is not None:
+        parts.append(f"bins={spec.bins}")
+    if spec.quantile:
+        parts.append("quantile=true")
+    if spec.threshold is not None:
+        parts.append(f"threshold={spec.threshold}")
+    if spec.categories is not None:
+        parts.append(f"categories={spec.categories}")
+    inner = ", ".join(parts)
+    return f"{spec.encoder}({inner})" if inner else spec.encoder
+
+
+def _yaml_safe(obj):
+    """Recursively convert tuples to lists — pydantic's tuple[float, float]
+    (FeatureEncoderSpec.range) round-trips through model_dump() as a real
+    tuple, which yaml.safe_dump can't represent."""
+    if isinstance(obj, tuple):
+        return [_yaml_safe(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _yaml_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_yaml_safe(v) for v in obj]
+    return obj
 
 
 @main.command("booleanize")
 @click.option(
+    "--dataset",
+    "dataset_name",
+    default=None,
+    help="Registered dataset key with a default booleanization recipe. Alternative to --config.",
+)
+@click.option(
     "--config",
     "config_path",
     type=click.Path(path_type=Path),
-    default=Path("/work/booleanisation_config.yaml"),
-    show_default=True,
-    help="Path to a booleanisation_config.yaml.",
+    default=None,
+    help="Path to a booleanisation_config.yaml. Alternative to --dataset. "
+         "Default: /work/booleanisation_config.yaml",
 )
-def booleanize(config_path: Path) -> None:
-    """Encode raw arrays (from `matador ingest`, or any x/y npz) into the
-    Boolean train/test text files `matador train` consumes.
+@click.option(
+    "--raw-dir",
+    "raw_dir",
+    type=click.Path(path_type=Path),
+    default=Path("/work/raw"),
+    show_default=True,
+    help="Only used with --dataset: directory containing <dataset>.npz (matador ingest's --output-dir).",
+)
+@click.option(
+    "--output-dir",
+    "output_dir",
+    type=click.Path(path_type=Path),
+    default=Path("/work/booleanised"),
+    show_default=True,
+    help="Only used with --dataset: where Boolean train/test files are written.",
+)
+@click.option(
+    "--show-recipe",
+    "show_recipe",
+    is_flag=True,
+    default=False,
+    help="Print --dataset NAME's resolved booleanisation_config.yaml and exit, without running "
+         "booleanization. Redirect to a file to inspect it or use it as a starting point for your own.",
+)
+def booleanize(
+    dataset_name: "str | None", config_path: "Path | None",
+    raw_dir: Path, output_dir: Path, show_recipe: bool,
+) -> None:
+    """Encode raw arrays into the Boolean train/test text files `matador
+    train` consumes — either a registered dataset's default recipe
+    (--dataset, run after `matador ingest --dataset ...`) or a fully custom
+    booleanisation_config.yaml (--config).
 
     \b
     Examples:
+      matador booleanize --dataset digits --raw-dir /work/raw
       matador booleanize --config /work/booleanisation_config.yaml
+      matador booleanize --dataset digits --show-recipe > /work/booleanisation_config.yaml
 
     \b
-    Config template:
+    Config template (for --config, or to use a different encoding on a
+    registered dataset than its default recipe):
       cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml
     """
     from matador.config.schema import BooleanisationConfig
+    from matador.preprocessing import registry
     from matador.preprocessing.booleanize import run_booleanize
 
-    if not config_path.exists():
-        raise click.ClickException(
-            f"Config file not found: {config_path}\n"
-            "  Create one based on examples/booleanisation_config.yaml."
-        )
+    if dataset_name and config_path:
+        raise click.ClickException("Pass either --dataset or --config, not both.")
+    if show_recipe and not dataset_name:
+        raise click.ClickException("--show-recipe requires --dataset NAME.")
+    if not dataset_name and not config_path:
+        config_path = Path("/work/booleanisation_config.yaml")
 
-    try:
-        raw = yaml.safe_load(config_path.read_text())
-        config = BooleanisationConfig.model_validate(raw)
-    except Exception as exc:
-        raise click.ClickException(f"Invalid config: {exc}") from exc
+    if dataset_name:
+        raw_npz = raw_dir / f"{dataset_name}.npz"
+
+        if show_recipe:
+            # Every registered dataset has SOMETHING to inspect and suggest
+            # edits to here — a verified default if one exists, otherwise a
+            # generic unvalidated skeleton to start from. Only the actual
+            # (non---show-recipe) run path below requires a verified default.
+            try:
+                recipe, is_verified = registry.get_recipe_for_inspection(dataset_name)
+            except (KeyError, FileNotFoundError) as exc:
+                raise click.ClickException(str(exc)) from exc
+
+            payload: dict = {"raw_npz": str(raw_npz), "name": dataset_name, "output_dir": str(output_dir)}
+            if recipe.features:
+                payload["features"] = [f.model_dump(exclude_none=True) for f in recipe.features]
+            if recipe.default_encoder is not None:
+                payload["default_encoder"] = recipe.default_encoder.model_dump(exclude_none=True)
+
+            ds = registry.get_dataset(dataset_name)
+            if is_verified:
+                click.echo(f"# Verified default booleanization recipe for {dataset_name!r} ({ds.name or dataset_name}).")
+                click.echo("# Reproduces the documented Boolean shape exactly (see data/Raw_Data_Bank.yaml).")
+            else:
+                click.echo(f"# UNVERIFIED starting skeleton for {dataset_name!r} ({ds.name or dataset_name}).")
+                click.echo("# No catalog-recorded default exists for this dataset -- the encoder below is a")
+                click.echo("# generic numeric guess (quantile-fit thermometer), not validated against any")
+                click.echo("# known original encoding. Read the notes below before trusting it as-is:")
+                if ds.notes:
+                    for note_line in ds.notes.strip().splitlines():
+                        click.echo(f"#   {note_line}")
+            click.echo("#")
+            click.echo("# Save as a booleanisation_config.yaml (edit freely — this is a starting")
+            click.echo("# point you're free to suggest changes to, not a locked-in default), then:")
+            click.echo("#   matador booleanize --config <path>")
+            if not raw_npz.exists():
+                click.echo(f"# NOTE: {raw_npz} does not exist yet — run this first:")
+                click.echo(f"#   matador ingest --dataset {dataset_name} --output-dir {raw_dir}")
+            click.echo(yaml.safe_dump(_yaml_safe(payload), sort_keys=False))
+            return
+
+        try:
+            recipe = registry.get_default_booleanization(dataset_name)
+        except (KeyError, FileNotFoundError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        if recipe is None:
+            raise click.ClickException(
+                f"Dataset {dataset_name!r} has no VERIFIED default booleanization recipe "
+                "(see its own notes in data/Raw_Data_Bank.yaml for why — usually a "
+                "feature-engineering step this pipeline doesn't automate), so matador won't "
+                "silently apply an unverified guess. Inspect a starting skeleton to edit and "
+                "verify yourself:\n"
+                f"  matador booleanize --dataset {dataset_name} --show-recipe > /work/booleanisation_config.yaml\n"
+                "Then run it explicitly once you're happy with it:\n"
+                "  matador booleanize --config /work/booleanisation_config.yaml"
+            )
+
+        if not raw_npz.exists():
+            raise click.ClickException(
+                f"{raw_npz} not found — run this first:\n"
+                f"  matador ingest --dataset {dataset_name} --output-dir {raw_dir}"
+            )
+        config = BooleanisationConfig(
+            raw_npz=raw_npz, name=dataset_name, output_dir=output_dir,
+            features=recipe.features, default_encoder=recipe.default_encoder,
+        )
+    else:
+        if not config_path.exists():
+            raise click.ClickException(
+                f"Config file not found: {config_path}\n"
+                "  Create one based on examples/booleanisation_config.yaml, or use --dataset "
+                "if this dataset has a default recipe (see `matador list-datasets`)."
+            )
+        try:
+            raw = yaml.safe_load(config_path.read_text())
+            config = BooleanisationConfig.model_validate(raw)
+        except Exception as exc:
+            raise click.ClickException(f"Invalid config: {exc}") from exc
 
     click.echo(f"Booleanizing {config.raw_npz} -> {config.name}_{{train,test}}.txt")
     click.echo("")
@@ -439,9 +619,6 @@ def validate(backend_name: str, config_path: Path, mode: str) -> None:
     else:
         click.echo(click.style("Validation FAILED.", fg="red"))
         raise SystemExit(1)
-
-
-_DEFAULT_ACCELERATOR_CONFIG = Path("/work/accelerator_config.yaml")
 
 
 @main.command("generate")
@@ -745,31 +922,44 @@ def reprogram_suite(backend_name: str, config_path: "Path | None", reprogram_con
 
 @main.command("waves")
 @click.option(
+    "--backend", "backend_name",
+    required=True,
+    type=click.Choice(list_backends()),
+    help="Backend whose RTL bundle to open waveforms for.  Default config: /work/<backend>.yaml",
+)
+@click.option(
     "--config",
     "config_path",
     type=click.Path(path_type=Path),
-    default=_DEFAULT_ACCELERATOR_CONFIG,
-    show_default=True,
-    help="Path to accelerator_config.yaml.",
+    default=None,
+    help="Path to backend config YAML.  Default: /work/<backend>.yaml",
 )
 @click.option("--tb", default="tb_system", show_default=True,
               help="Which testbench waveform to open.")
-def waves(config_path: Path, tb: str) -> None:
+def waves(backend_name: str, config_path: "Path | None", tb: str) -> None:
     """Open GTKWave for a simulated testbench waveform."""
     import subprocess
-    from matador.config.schema import TMAcceleratorConfig
+
+    from matador.backends.registry import get as get_backend
+
+    if config_path is None:
+        config_path = Path(f"/work/{backend_name}.yaml")
 
     if not config_path.exists():
         raise click.ClickException(
             f"Config file not found: {config_path}\n"
-            "  Run 'matador generate' first."
+            f"  Run 'matador generate --backend {backend_name}' first."
         )
 
+    backend = get_backend(backend_name)()
     try:
         raw    = yaml.safe_load(config_path.read_text())
-        config = TMAcceleratorConfig.model_validate(raw)
+        config = backend.config_class.model_validate(raw)
     except Exception as exc:
         raise click.ClickException(f"Invalid config: {exc}") from exc
+
+    # RTL lives under <output_dir>/<backend>/ — same namespacing generate/simulate use.
+    config = config.model_copy(update={"output_dir": config.output_dir / backend_name})
 
     sim_dir  = config.output_dir / "RTL" / "sim"
     waves_sh = sim_dir / "waves.sh"
@@ -777,7 +967,7 @@ def waves(config_path: Path, tb: str) -> None:
     if not waves_sh.exists():
         raise click.ClickException(
             f"waves.sh not found at {waves_sh}\n"
-            "  Run 'matador generate' first."
+            f"  Run 'matador generate --backend {backend_name}' first, then simulate to produce a waveform."
         )
 
     click.echo(f"Opening GTKWave for {tb}…")
@@ -1032,15 +1222,137 @@ def status() -> None:
         click.echo(line)
 
 
+# Directories matador itself writes into a work dir at their default paths.
+# Backend RTL dirs (named after each registry.list_backends() entry) are
+# added dynamically in _clean_targets() -- not hardcoded here, so a new
+# backend is covered automatically.
+_GENERATED_DIRS = ("TMIR", "raw", "booleanised", "_cache", "_extracted")
+
+# Config YAMLs a user typically authors by hand (cp'd from examples/ and
+# edited) -- kept by default even when cleaning generated output, since
+# removing someone's edited recipe is a different, bigger ask than removing
+# what matador derived from it. <backend>.yaml entries are added dynamically.
+_CONFIG_FILENAMES = (
+    "training_config.yaml", "data_source_config.yaml", "booleanisation_config.yaml",
+    "reprogram_config.yaml", "validation_config.yaml",
+)
+
+
+def _clean_targets(work_dir: Path, include_configs: bool) -> list[Path]:
+    from matador.backends.registry import list_backends
+
+    targets = [work_dir / d for d in _GENERATED_DIRS if (work_dir / d).exists()]
+    targets += [work_dir / bk for bk in list_backends() if (work_dir / bk).exists()]
+    if include_configs:
+        names = list(_CONFIG_FILENAMES) + [f"{bk}.yaml" for bk in list_backends()]
+        targets += [work_dir / n for n in names if (work_dir / n).exists()]
+    return sorted(set(targets))
+
+
+def _refuse_if_dangerous(work_dir: Path) -> None:
+    import matador
+
+    resolved = work_dir.resolve()
+    dangerous = {Path("/"), Path.home(), Path(matador.__file__).resolve().parent.parent}
+    if resolved in dangerous:
+        raise click.ClickException(
+            f"Refusing to clean {resolved} — this looks like a root, home, or the matador "
+            "repo's own directory, not a work directory. Pass --work-dir explicitly if this "
+            "is really where you keep matador's generated output."
+        )
+
+
+@main.command("clean")
+@click.option(
+    "--work-dir",
+    type=click.Path(path_type=Path),
+    default=Path("/work"),
+    show_default=True,
+    help="Work directory to clean.",
+)
+@click.option(
+    "--configs", "include_configs", is_flag=True, default=False,
+    help="Also remove config YAMLs you authored (training_config.yaml, <backend>.yaml, etc.), "
+         "not just generated output.",
+)
+@click.option(
+    "--all", "clean_all", is_flag=True, default=False,
+    help="Remove EVERYTHING directly under --work-dir, including files matador doesn't "
+         "recognize. Use when you want a genuinely empty work directory, not just a reset "
+         "of matador's own output.",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Show what would be removed; delete nothing.")
+@click.option("-y", "--yes", is_flag=True, default=False, help="Skip the confirmation prompt.")
+def clean(work_dir: Path, include_configs: bool, clean_all: bool, dry_run: bool, yes: bool) -> None:
+    """Remove generated output from a work directory so you can start fresh.
+
+    By default, only removes directories matador itself writes (TMIR/, raw/,
+    booleanised/, per-backend RTL/, ingest's internal cache dirs) — config
+    YAMLs you edited by hand are left alone. Always previews what will be
+    removed and asks for confirmation unless --yes is given.
+
+    \b
+    Examples:
+      matador clean --dry-run                # preview only, nothing removed
+      matador clean                          # remove generated output, keep your configs
+      matador clean --configs                # also remove your config YAMLs
+      matador clean --all -y                 # wipe --work-dir entirely, no prompt
+    """
+    import shutil
+
+    _refuse_if_dangerous(work_dir)
+
+    if not work_dir.exists():
+        click.echo(f"{work_dir} does not exist — nothing to clean.")
+        return
+
+    if clean_all:
+        targets = sorted(work_dir.iterdir())
+    else:
+        targets = _clean_targets(work_dir, include_configs)
+
+    if not targets:
+        click.echo(f"Nothing to clean in {work_dir}.")
+        return
+
+    click.echo(f"The following will be removed from {work_dir}:")
+    for t in targets:
+        kind = "dir " if t.is_dir() else "file"
+        click.echo(f"  [{kind}] {t.relative_to(work_dir)}")
+    click.echo("")
+
+    if dry_run:
+        click.echo("(dry run — nothing deleted)")
+        return
+
+    if clean_all:
+        prompt = (
+            f"Remove ALL {len(targets)} item(s) directly under {work_dir}, including anything "
+            "matador didn't create?"
+        )
+    else:
+        prompt = f"Remove {len(targets)} item(s) from {work_dir}?"
+
+    if not yes and not click.confirm(prompt, default=False):
+        click.echo("Aborted — nothing removed.")
+        return
+
+    for t in targets:
+        if t.is_dir():
+            shutil.rmtree(t)
+        else:
+            t.unlink()
+
+    click.echo(f"Removed {len(targets)} item(s). {work_dir} is ready for a fresh start.")
+
+
 @main.command()
 def version() -> None:
     """Print the Matador version."""
     click.echo(f"matador {__version__}")
 
 
-@main.command("list-backends")
-def list_backends_cmd() -> None:
-    """List available RTL accelerator backends from the plugin registry."""
+def _print_backends_registry() -> None:
     from matador.backends.registry import describe, list_backends as _list
     click.echo("Registered accelerator backends  (--backend flag):")
     click.echo("")
@@ -1051,6 +1363,60 @@ def list_backends_cmd() -> None:
         click.echo("")
     click.echo("Synthesis backends (Vivado):")
     click.echo("  vivado      Xilinx Vivado (synthesis + implementation)")
+
+
+def _print_datasets_registry() -> None:
+    from matador.preprocessing import registry
+
+    try:
+        names = registry.list_datasets()
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo("Registered datasets  (--dataset flag on ingest/booleanize):")
+    click.echo(f"  catalog: {registry.DEFAULT_CATALOG}")
+    click.echo("")
+    for name in names:
+        ds = registry.get_dataset(name)
+        click.echo(f"  {click.style(name, bold=True)}")
+        click.echo(f"    {ds.name or name}")
+        if ds.booleanization is not None:
+            if ds.booleanization.default_encoder is not None:
+                click.echo(f"    default recipe: {_format_encoder_spec(ds.booleanization.default_encoder)}")
+            if ds.booleanization.features:
+                click.echo(f"    + {len(ds.booleanization.features)} column-specific override(s)")
+            click.echo(f"    inspect:  matador booleanize --dataset {name} --show-recipe")
+        else:
+            click.echo("    no verified default (see its own notes) — but you can still inspect an")
+            click.echo(f"    unverified starting skeleton:  matador booleanize --dataset {name} --show-recipe")
+        click.echo("")
+
+
+@main.command("registry")
+def registry_cmd() -> None:
+    """Show everything registered: accelerator backends and datasets.
+
+    One place to see the whole plugin catalog — equivalent to running
+    `matador list-backends` followed by `matador list-datasets`, which
+    remain available individually for scripting.
+    """
+    _print_backends_registry()
+    click.echo("")
+    click.echo("─" * 60)
+    click.echo("")
+    _print_datasets_registry()
+
+
+@main.command("list-backends")
+def list_backends_cmd() -> None:
+    """List available RTL accelerator backends from the plugin registry."""
+    _print_backends_registry()
+
+
+@main.command("list-datasets")
+def list_datasets_cmd() -> None:
+    """List registered datasets from the shared catalog (--dataset flag)."""
+    _print_datasets_registry()
 
 
 @main.command("list-simulators")

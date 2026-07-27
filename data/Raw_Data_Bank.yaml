@@ -100,6 +100,11 @@ datasets:
       files: ["Digits/Digits_train.txt", "Digits/Digits_test.txt"]
       shape: {train: 1437, test: 360, bits: 512, classes: 10}
       encoding: "64 features x 8 bits (values 0..16 thermometer/binary coded)"
+    # Mechanically derivable from expect.value_range above (a known, fixed
+    # 0..16 scale) -- matador booleanize --dataset digits reproduces this
+    # exact 512-bit shape (verified against the committed files above).
+    booleanization:
+      default_encoder: {encoder: thermometer, bits: 8, range: [0, 16]}
     license: CC BY 4.0
     citation: "Alpaydin, E. & Kaynak, C. (1998). Optical Recognition of Handwritten Digits. UCI ML Repository. doi:10.24432/C50P49"
     notes: |
@@ -139,7 +144,7 @@ datasets:
       segment_shape: [125, 45]
       n_classes_full: 19
       subset_used: {activities: 10, n_segments: 4800}
-    export: {formats: [npz], path: "{output_dir}/{key}"}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}   # csv auto-skipped if huge -- see ingest.py::_CSV_SIZE_THRESHOLD_MB
     booleanised:
       files: ["Sports/Sport_train.txt", "Sports/Sport_test.txt"]
       shape: {train: 3839, test: 960, bits: 300, classes: 10}
@@ -168,7 +173,7 @@ datasets:
       api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=149)"
     extract:
       archive: zip
-      members: ["**/xa*.dat"]          # 9 files, xaa..xai
+      members: ["xa*.dat"]             # 9 files, xaa..xai -- flat at the zip root, no subdirectory
     parse:
       reader: csv
       delimiter: " "
@@ -183,6 +188,11 @@ datasets:
       files: ["Statlog/Statlog_train.txt", "Statlog/Statlog_test.txt"]
       shape: {train: 676, test: 170, bits: 288, classes: 4}
       encoding: "18 features x 16 bits"
+    # 288 bits / 18 features = 16 bits/feature (matches encoding above) --
+    # no fixed known value range for these shape measurements, so
+    # thresholds are fit from train-split quantiles rather than a range.
+    booleanization:
+      default_encoder: {encoder: thermometer, bits: 16, quantile: true}
     license: CC BY 4.0
     citation: "Mowforth, P. & Shepherd, B. Statlog (Vehicle Silhouettes). UCI ML Repository. doi:10.24432/C5HG6N"
     notes: |
@@ -215,8 +225,7 @@ datasets:
       delimiter: ","
       header: true
       label_column: -1
-      label_map: {Rest: 0, Preparation: 1, Stroke: 2, Hold: 3, Retraction: 4}
-      drop_columns: ["timestamp"]
+      label_map: {D: 0, P: 1, S: 2, H: 3, R: 4}   # va3's Phase column is single-letter codes, not the phase names -- see notes
       dtype: float32
     split:
       mode: random
@@ -241,6 +250,17 @@ datasets:
       should assert 1747 rows and fall back to scanning all 14 files for the one
       with that count. 212 bits is not a clean multiple of 18 or 32, so the
       booleanisation dropped or re-derived columns -- unrecoverable from here.
+      Two file shapes ship in the same zip: "*_raw.csv" (18 sensor columns +
+      timestamp + phase, 20 cols) and "*_va3.csv" (32 already-processed
+      numeric feature columns + Phase, 33 cols, no timestamp at all) -- the
+      pipeline only ever reads the va3 file (split.source_member above), so
+      parse.* must describe THAT file's schema, not the raw one.
+      va3's own Phase column holds single-letter codes (D/S/R/P/H, not the
+      spelled-out phase names) -- label_map above assumes D=Rest, P=Preparation,
+      S=Stroke, H=Hold, R=Retraction based on relative frequency in a1_va3.csv
+      (D 694, S 656, R 191, P 163, H 39 of 1743 rows -- Hold being rarest and
+      Rest/Stroke dominant matches gesture-segmentation intuition, but this is
+      not confirmed against an official codebook).
 
   # ---------------------------------------------------------------------------
   - key: human_activity
@@ -326,6 +346,13 @@ datasets:
       files: ["Mammographic Mass/mammo_train.txt", "Mammographic Mass/mammo_test.txt"]
       shape: {train: 768, test: 193, bits: 40, classes: 2}
       encoding: "5 features x 8 bits"
+    # 40 bits / 5 features = 8 bits/feature (matches encoding above; this
+    # pipeline keeps all 5 raw columns, birads included, unlike whatever the
+    # original booleanisation may have dropped per the notes below).
+    # Quantile-fit (mixed-scale columns); '?' values become NaN -> zero bits
+    # via the thermometer encoder's own default, not imputed.
+    booleanization:
+      default_encoder: {encoder: thermometer, bits: 8, quantile: true}
     license: CC BY 4.0
     citation: "Elter, M. (2007). Mammographic Mass. UCI ML Repository. doi:10.24432/C53K6Z"
     notes: |
@@ -368,7 +395,7 @@ datasets:
       classes_upstream: {0: unmarked, 1: hand_at_rest, 2: fist, 3: wrist_flexion,
                          4: wrist_extension, 5: radial_deviation, 6: ulnar_deviation,
                          7: extended_palm}
-    export: {formats: [npz], path: "{output_dir}/{key}"}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}   # csv auto-skipped if huge -- see ingest.py::_CSV_SIZE_THRESHOLD_MB
     booleanised:
       files: ["EMG/EMG_train.txt", "EMG/EMG_test.txt"]
       shape: {train: 45694, test: 11424, bits: 96, classes: 7}
@@ -414,6 +441,12 @@ datasets:
       files: ["Sensorless Drive/sensorless_train.txt", "Sensorless Drive/sensorless_test.txt"]
       shape: {train: 46807, test: 11702, bits: 480, classes: 11}
       encoding: "48 features x 10 bits; labels are 1..11 (not 0-indexed)"
+    # 480 bits / 48 features = 10 bits/feature (matches encoding above).
+    # No fixed known range for these sensor-derived features -> quantile-fit.
+    # The 1-indexed labels are handled automatically by ingest.py's own
+    # label normalization (shifts to 0-indexed), not by this recipe.
+    booleanization:
+      default_encoder: {encoder: thermometer, bits: 10, quantile: true}
     license: CC BY 4.0
     citation: "Bator, M. (2013). Dataset for Sensorless Drive Diagnosis. UCI ML Repository. doi:10.24432/C5VP5F"
     notes: |
@@ -455,11 +488,16 @@ datasets:
       train: [train_X, train_y]
       test: [test_X, test_y]
     expect: {n_train: 60000, n_test: 10000, image_shape: [28, 28], n_classes: 10}
-    export: {formats: [npz], path: "{output_dir}/{key}"}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}   # csv auto-skipped if huge -- see ingest.py::_CSV_SIZE_THRESHOLD_MB
     booleanised:
       files: ["MNIST/mnist_train.txt", "MNIST/mnist_test.txt"]
       shape: {train: 60000, test: 9999, bits: 784, classes: 10}
       encoding: "1 bit per pixel, fixed threshold on the 0..255 grey value"
+    # 1 bit/pixel matches encoding above; 127 is the usual mid-grey
+    # convention for a 0..255 threshold ("fixed threshold" per that note),
+    # not a recorded exact value -- close enough to be a sensible default.
+    booleanization:
+      default_encoder: {encoder: threshold, threshold: 127}
     license: "CC BY-SA 3.0 (as stated by the original distributors)"
     citation: "LeCun, Y., Cortes, C., Burges, C. The MNIST database of handwritten digits."
     notes: |
@@ -468,113 +506,6 @@ datasets:
       itself falls back to, and are the reliable choice.
       The booleanised test file has 9999 rows, not 10000 -- one sample was lost
       somewhere in the pipeline. Expect an off-by-one when you re-derive it.
-
-  # ---------------------------------------------------------------------------
-  - key: cifar2
-    name: CIFAR-2 (CIFAR-10 regrouped, greyscale)
-    enabled: true
-    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
-    source:
-      kind: http_tar
-      homepage: https://www.cs.toronto.edu/~kriz/cifar.html
-      urls:
-        - url: https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz
-          filename: cifar-10-python.tar.gz
-          role: all
-          md5: c58f30108f718f92721af3b95e74349a
-          approx_size: 163MB
-      mirrors:
-        - https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz
-      api: "torchvision.datasets.CIFAR10(root, download=True)"
-    extract:
-      archive: tar.gz
-      members: ["cifar-10-batches-py/data_batch_*", "cifar-10-batches-py/test_batch",
-                "cifar-10-batches-py/batches.meta"]
-    parse:
-      reader: cifar_pickle
-      dtype: uint8
-      relabel:                      # 10 classes -> 2 superclasses
-        0: {vehicles: [0, 1, 8, 9]}   # airplane, automobile, ship, truck
-        1: {animals:  [2, 3, 4, 5, 6, 7]}  # bird, cat, deer, dog, frog, horse
-      to_greyscale: true            # 3x32x32 -> 32x32
-    split:
-      mode: predefined
-      train: ["data_batch_*"]
-      test: ["test_batch"]
-    expect:
-      n_train: 50000
-      n_test: 10000
-      class_counts_test: {0: 4000, 1: 6000}
-      image_shape_out: [32, 32]
-    export: {formats: [npz], path: "{output_dir}/{key}"}
-    booleanised:
-      files: ["CIFAR-2_grayscale/cifar2_train.txt", "CIFAR-2_grayscale/cifar2_test.txt"]
-      shape: {train: 50000, test: 10000, bits: 1024, classes: 2}
-      encoding: "32x32 greyscale, 1 bit per pixel"
-    license: "No formal licence; free for research use, cite the tech report"
-    citation: "Krizhevsky, A. (2009). Learning Multiple Layers of Features from Tiny Images. Tech report, University of Toronto."
-    notes: |
-      Not a 2-class subset: it is ALL 60000 CIFAR-10 images relabelled into
-      animals vs vehicles, which is why the counts are 50000/10000 rather than
-      10000/2000. The 20000/30000 and 4000/6000 class splits in the booleanised
-      files confirm the grouping above (4 vehicle classes -> 0, 6 animal
-      classes -> 1). Greyscale conversion weights are not recorded; ITU-R
-      BT.601 luma is the standard assumption.
-
-  # ---------------------------------------------------------------------------
-  - key: kws2
-    name: Google Speech Commands (yes/no subset)
-    enabled: true
-    status: {downloadable: "yes", direct_url: true, checked: 2026-07-25}
-    source:
-      kind: http_tar
-      homepage: https://arxiv.org/abs/1804.03209
-      urls:
-        - url: http://download.tensorflow.org/data/speech_commands_v0.02.tar.gz
-          filename: speech_commands_v0.02.tar.gz
-          role: all
-          approx_size: 2.7GB
-        - url: http://download.tensorflow.org/data/speech_commands_test_set_v0.02.tar.gz
-          filename: speech_commands_test_set_v0.02.tar.gz
-          role: test
-      mirrors:
-        - http://download.tensorflow.org/data/speech_commands_v0.01.tar.gz
-      api: "tensorflow_datasets.load('speech_commands')  # or HF: speech_commands"
-    extract:
-      archive: tar.gz
-      members: ["yes/*.wav", "no/*.wav", "_background_noise_/*.wav",
-                "validation_list.txt", "testing_list.txt"]
-    parse:
-      reader: wav_dir
-      sample_rate: 16000
-      bit_depth: 16
-      channels: 1
-      label_from_path: "^(yes|no)/"
-    split:
-      mode: predefined
-      spec_files: ["validation_list.txt", "testing_list.txt"]   # official speaker-disjoint lists
-    expect:
-      n_files_total: 105829
-      n_yes: 4044
-      n_no: 3941
-      clip_length_s: 1.0
-    export: {formats: [keep_files, npz], path: "{output_dir}/{key}"}
-    booleanised:
-      files: ["Google_Speech_Commands_yes_no/kws2_train.txt", "Google_Speech_Commands_yes_no/kws2_test.txt"]
-      shape: {train: 1600, test: 400, bits: 377, classes: 2}
-      encoding: "377 bits from an MFCC-style time-frequency feature block"
-    license: CC BY 4.0
-    citation: "Warden, P. (2018). Speech Commands: A Dataset for Limited-Vocabulary Speech Recognition. arXiv:1804.03209"
-    notes: |
-      Heaviest download by far (~2.7GB gz, ~3.8GB unpacked) for 2000 clips you
-      actually use -- the tar has no per-word slice, so you fetch the lot and
-      filter, or pull just the yes/no folders from the HuggingFace parquet
-      mirror if bandwidth matters.
-      The MATADOR paper's KWS is 6 keywords (yes/no/up/down/left/right, "KWS6");
-      the copy in data.zip is the 2-keyword variant at the same 377-bit width.
-      800 clips per class train + 200 per class test = a balanced subsample, not
-      the official speaker-disjoint split, so re-deriving it exactly is not
-      possible without the original sampling seed.
 
 # =============================================================================
 # NOT A DATASET -- for completeness

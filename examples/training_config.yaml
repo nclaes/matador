@@ -38,5 +38,14 @@ seed: 42
 train_data: /work/data/train.txt
 test_data: /work/data/test.txt
 
+# Optional: names this model's output directory (<output_dir>/TMIR/<model_name>/),
+# so training several models into the same work directory doesn't overwrite
+# an earlier one's validation_config.yaml/rom_inference.py/etc. If omitted,
+# derived from train_data's filename (e.g. digits_train.txt -> "digits") --
+# matching `matador booleanize`'s own <name>_train.txt convention, so the
+# ingest -> booleanize -> train chain needs no extra configuration here.
+# model_name: my_model
+
 # Directory where trained TA state files and logs will be written
-output_dir: /work/TMIR
+# (matador train always writes into <output_dir>/TMIR/<model_name>/)
+output_dir: /work

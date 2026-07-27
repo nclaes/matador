@@ -23,12 +23,29 @@ class TrainingConfig(BaseModel):
     train_data: Path = Field(description="Path to training data file")
     test_data: Path = Field(description="Path to test data file")
     output_dir: Path = Field(description="Directory for output files")
+    model_name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Namespaces this model's output under <output_dir>/TMIR/<model_name>/, so "
+            "multiple models can coexist in one work directory without overwriting each "
+            "other's validation_config.yaml/rom_inference.py/etc. If not given, derived "
+            "from train_data's filename (e.g. digits_train.txt -> 'digits') — matching "
+            "matador booleanize's own <name>_train.txt convention."
+        ),
+    )
 
     @field_validator("clauses")
     @classmethod
     def clauses_must_be_even(cls, v: int) -> int:
         if v % 2 != 0:
             raise ValueError("clauses must be an even number")
+        return v
+
+    @field_validator("model_name", mode="after")
+    @classmethod
+    def _model_name_must_be_safe(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and (not v.strip() or "/" in v or "\\" in v):
+            raise ValueError("model_name must be a non-empty string with no path separators")
         return v
 
     @model_validator(mode="after")
@@ -94,17 +111,25 @@ class FeatureEncoderSpec(BaseModel):
     categories: Optional[list[Any]] = Field(default=None, description="onehot only: explicit category list")
 
 
-class BooleanisationConfig(BaseModel):
+class BooleanizationRecipe(BaseModel):
+    """The pure encoding-scheme half of booleanization — which raw columns
+    get which encoder — with no I/O fields. Reused standalone as a
+    catalog entry's optional default recipe (matador.preprocessing.sources.
+    RawDataSourceSpec.booleanization) and as the base of BooleanisationConfig
+    below, which adds where the data actually comes from / goes."""
+    features: list[FeatureEncoderSpec] = Field(default_factory=list)
+    default_encoder: Optional[FeatureEncoderSpec] = Field(
+        default=None, description="Fallback applied to any raw column not covered by `features`."
+    )
+
+
+class BooleanisationConfig(BooleanizationRecipe):
     """Turns raw arrays (matador ingest's npz output, or any x/y npz) into
     the exact Boolean train/test text format TrainingConfig.train_data /
     test_data already consumes — no changes needed to matador train."""
     raw_npz: Path = Field(description="npz with x_train/y_train/x_test/y_test, or unsplit x/y.")
     name: str = Field(description="Output file stem: <name>_train.txt / <name>_test.txt")
     output_dir: Path = Field(description="Directory for output files.")
-    features: list[FeatureEncoderSpec] = Field(default_factory=list)
-    default_encoder: Optional[FeatureEncoderSpec] = Field(
-        default=None, description="Fallback applied to any raw column not covered by `features`."
-    )
     test_size: float = Field(default=0.2, gt=0, lt=1, description="Only used when raw_npz has unsplit x/y.")
     seed: int = Field(default=0)
     stratify: bool = Field(default=True)

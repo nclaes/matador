@@ -3,6 +3,14 @@
 # Place this file in your work directory (mounted as /work inside the container).
 # Run: matador ingest --config /work/data_source_config.yaml --output-dir /work/raw
 #
+# NOTE: if the dataset you want is already registered (`matador
+# list-datasets`), you don't need this file at all — just:
+#   matador ingest --dataset digits --output-dir /work/raw
+# This file is for (a) a dataset NOT in the shared catalog yet, standalone,
+# or (b) defining a NEW catalog entry to add to data/Raw_Data_Bank.yaml so
+# everyone else can reference it by name too (copy the fields you write here
+# straight into that file's datasets: list).
+#
 # Points Matador at raw data — local or external — and fetches/materializes
 # it. Two ways to fill this file out:
 #

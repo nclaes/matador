@@ -1,23 +1,25 @@
-# generate_config.yaml — Unified RTL generation configuration
+# generate_config.yaml — shared RTL generation config template
 #
-# Usage:
-#   matador generate --config examples/generate_config.yaml
+# --backend is REQUIRED on every `matador generate` invocation (see
+# `matador list-backends` for the full set) — there is no bare
+# `matador generate` that builds multiple backends from one command.
+# This file's fields cover vanilla_tiled and vanilla_hardwired only (they
+# happen to share model_path/output_dir/axis_data_width/fifo_depth, plus
+# their own distinct knobs below); vanilla_gp_tiled's config shape is
+# genuinely different (target_fpga/capacity fields, not feat_slice/
+# clause_slice/pipeline_stages) — use examples/vanilla_gp_tiled.yaml for it.
 #
-# This single config drives ALL registered backends.  Each backend picks
-# the fields it needs and ignores the rest.
-#
-#   matador generate                            # generates tiled + hardwired
-#   matador generate --backend tiled            # generates tiled only
-#   matador generate --backend hardwired        # generates hardwired only
+#   matador generate --backend vanilla_tiled     --config examples/generate_config.yaml
+#   matador generate --backend vanilla_hardwired --config examples/generate_config.yaml
 #
 # Output is written to:
-#   <output_dir>/tiled/RTL/       — tiled backend
-#   <output_dir>/hardwired/RTL/   — hardwired backend
+#   <output_dir>/vanilla_tiled/RTL/       — tiled backend
+#   <output_dir>/vanilla_hardwired/RTL/   — hardwired backend
 #
 # Prerequisites: a trained TMIR model at model_path (from `matador train`).
 
 # Path to the trained TMIR model file (.yaml or .npz).
-model_path: /work/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+model_path: /work/TMIR/<model_name>/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
 
 # Root output directory.  Backend subdirectories are created automatically.
 output_dir: /work

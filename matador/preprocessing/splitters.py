@@ -72,7 +72,7 @@ def resolve_predefined_group(
     (matches source.urls[].role, e.g. mnist's "train_X"), then as a glob
     pattern against the extracted path (relative to its own root — see
     root_by_path — and against the bare filename — covers both
-    human_activity's "**/train/X_train.txt" and cifar2's "data_batch_*")."""
+    human_activity's "**/train/X_train.txt" and a CIFAR-style "data_batch_*")."""
     out: list[Path] = []
     for pattern in patterns:
         role_matches = [p for p in extracted if role_by_path.get(p) == pattern]
@@ -91,8 +91,8 @@ def resolve_spec_files_split(
     extracted: list[Path],
     root_by_path: "dict[Path, Path]",
 ) -> tuple[list[Path], list[Path]]:
-    """kws2-style: one or more line-list files enumerate relative paths held
-    out for validation/test; everything else is train. Matador only needs a
+    """Speech-Commands-style: one or more line-list files enumerate relative
+    paths held out for validation/test; everything else is train. Matador only needs a
     train/test split, so validation_list.txt + testing_list.txt are unioned
     into "test"."""
     held_out: set[str] = set()

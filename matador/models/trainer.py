@@ -21,6 +21,17 @@ def _import_tmu():
     return import_tmu_classifier()
 
 
+def _derive_model_name(train_data: Path) -> str:
+    """digits_train.txt -> 'digits' — mirrors matador.preprocessing.booleanize's
+    own <name>_train.txt output convention, so the common ingest -> booleanize
+    -> train chain gets a meaningful, collision-free model_name for free."""
+    stem = train_data.stem
+    for suffix in ("_train", "-train"):
+        if stem.lower().endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
 def load_data(config: TrainingConfig) -> dict[str, np.ndarray]:
     """Load and split space-separated Boolean dataset files."""
     train_raw = np.genfromtxt(config.train_data, delimiter=" ", dtype=np.uint32)
@@ -95,7 +106,12 @@ def _embed_test_vectors(tmir, config: "TrainingConfig", n: int = 10) -> None:
 def export_tmir(tm, config: TrainingConfig) -> tuple[Path, Path, Path]:
     """Convert a trained TMU model to TMIR, validate, and write to disk.
 
-    Files are written to ``<output_dir>/TMIR/``:
+    Files are written to ``<output_dir>/TMIR/<model_name>/`` — namespaced per
+    model (config.model_name, or derived from train_data's filename if not
+    given — see _derive_model_name) so multiple models trained into the same
+    output_dir don't overwrite each other's validation_config.yaml/
+    ta_actions.npy/model_metadata.json/rom_inference.py, which are all
+    otherwise fixed filenames:
       - ``<stem>.yaml``              — human-readable model
       - ``<stem>.npz``               — compact binary, preferred for tooling
       - ``validation_config.yaml``   — ready-to-use config for ``matador validate``
@@ -108,7 +124,8 @@ def export_tmir(tm, config: TrainingConfig) -> tuple[Path, Path, Path]:
     """
     import yaml as _yaml
 
-    tmir_dir = config.output_dir / "TMIR"
+    model_name = config.model_name or _derive_model_name(config.train_data)
+    tmir_dir = config.output_dir / "TMIR" / model_name
     tmir_dir.mkdir(parents=True, exist_ok=True)
 
     s_tag = str(int(config.s)) if config.s == int(config.s) else str(config.s)
@@ -123,8 +140,11 @@ def export_tmir(tm, config: TrainingConfig) -> tuple[Path, Path, Path]:
 
     tmir = from_tmu(tm)
 
-    # Patch provenance with the actual epoch count from the training run.
+    # Patch provenance with the actual epoch count from the training run,
+    # and the model_name so a namespaced-but-not-yet-populated schema field
+    # (dataset_id) finally carries useful identifying information.
     tmir.provenance.epochs = config.epochs
+    tmir.provenance.dataset_id = model_name
 
     # Embed the first N test samples as ground-truth eval vectors so the TMIR
     # is self-validating without needing the test dataset on disk.

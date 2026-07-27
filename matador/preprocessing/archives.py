@@ -31,10 +31,16 @@ def extract_archive(archive_path: Path, spec: ExtractSpec, dest_dir: Path) -> li
     file paths (post-member-filtering, post-inner_archive unpacking)."""
     dest_dir.mkdir(parents=True, exist_ok=True)
 
+    # spec.members always describes the FINAL files wanted, which live
+    # inside inner_archive when one is set -- the outer archive only needs
+    # to yield that one nested-archive member, not be filtered against
+    # patterns meant for its contents.
+    outer_patterns = [spec.inner_archive] if spec.inner_archive else spec.members
+
     if spec.archive == "zip":
-        extracted = _extract_zip(archive_path, spec.members, dest_dir)
+        extracted = _extract_zip(archive_path, outer_patterns, dest_dir)
     elif spec.archive == "tar.gz":
-        extracted = _extract_targz(archive_path, spec.members, dest_dir)
+        extracted = _extract_targz(archive_path, outer_patterns, dest_dir)
     elif spec.archive == "gzip":
         extracted = [_extract_gzip(archive_path, dest_dir)]
     else:

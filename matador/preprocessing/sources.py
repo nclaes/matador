@@ -23,6 +23,8 @@ from typing import Any, Literal, Optional, Union
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from matador.config.schema import BooleanizationRecipe
+
 
 class _Base(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -113,6 +115,18 @@ class RawDataSourceSpec(_Base):
     expect: dict[str, Any] = Field(default_factory=dict)
     export: ExportSpec = Field(default_factory=ExportSpec)
     booleanised: dict[str, Any] = Field(default_factory=dict)
+    booleanization: Optional[BooleanizationRecipe] = Field(
+        default=None,
+        description=(
+            "Optional DEFAULT encoding recipe `matador booleanize --dataset <key>` uses "
+            "when no --config override is given. Distinct from `booleanised` above (a "
+            "free-text description of what the already-committed data.zip copy looks "
+            "like) — this is an actionable recipe this pipeline can actually run. Only "
+            "set where the raw-ingest output mechanically maps to a known encoding; left "
+            "unset where `notes`/`booleanised.encoding` documents a feature-engineering "
+            "step (windowing, MFCC, ...) this pipeline doesn't implement."
+        ),
+    )
     license: Optional[str] = None
     citation: Optional[str] = None
     notes: Optional[str] = None

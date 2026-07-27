@@ -28,13 +28,13 @@ steps:
   #   3. (default, if neither is given) the model's own TMIR
   #      verification.test_vectors, embedded at training/emulation time
 
-  - model: /work/TMIR/digits.yaml
+  - model: /work/TMIR/digits/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
     dataset: /work/booleanised/digits_test.txt
     n_samples: 20
     seed: 0
     name: digits
 
-  - model: /work/TMIR/sports.yaml
+  - model: /work/TMIR/sports/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
     # no dataset/vectors given -> uses this model's own embedded
     # verification.test_vectors
     name: sports

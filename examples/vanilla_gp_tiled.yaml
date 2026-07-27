@@ -17,7 +17,7 @@
 # Path to the trained TMIR model file (.yaml or .npz). Only used to build the
 # CMD_LOAD artifact and the model-specific verification testbench — it does
 # not change the generated RTL's capacity/datapath.
-model_path: /work/TMIR/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+model_path: /work/TMIR/<model_name>/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
 
 # Root output directory. RTL is written to <output_dir>/RTL/.
 # Subdirectories created automatically:

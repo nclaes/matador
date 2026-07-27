@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import fnmatch
+import io
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,14 @@ from matador.preprocessing.splitters import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Above this estimated on-disk size, csv export is skipped in favor of npz
+# (which already has everything matador booleanize needs) -- a human-
+# readable duplicate of a genuinely large array isn't worth writing. Chosen
+# comfortably above the catalog's largest currently-csv-exported entry
+# (human_activity, ~64MB) and comfortably below the ones this was added to
+# skip (mnist ~220MB, sports ~565MB).
+_CSV_SIZE_THRESHOLD_MB = 100
 
 
 @dataclass
@@ -116,6 +125,24 @@ def _normalize_labels(report: IngestReport) -> None:
         report.warnings.append(f"labels were not 0-indexed; shifted by -{offset} (raw min was {offset})")
 
 
+def _estimate_csv_bytes(X: np.ndarray, y: "Optional[np.ndarray]") -> int:
+    """Estimate on-disk CSV size by formatting a small sample of rows and
+    extrapolating to the full array -- lets _export() decide whether a csv
+    is worth writing without ever writing a huge one just to find out."""
+    n = X.shape[0]
+    if n == 0:
+        return 0
+    sample_n = min(50, n)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    for i in range(sample_n):
+        row = list(X[i])
+        if y is not None:
+            row.append(int(y[i]))
+        w.writerow(row)
+    return int(len(buf.getvalue().encode()) / sample_n * n)
+
+
 def _export(report: IngestReport, spec: RawDataSourceSpec, output_dir: Path) -> None:
     dest = spec.export.path.format(output_dir=output_dir, key=spec.key)
     dest_path = Path(dest)
@@ -132,16 +159,25 @@ def _export(report: IngestReport, spec: RawDataSourceSpec, output_dir: Path) -> 
         report.output_paths["npz"] = npz_path
 
     if "csv" in spec.export.formats:
-        for split_name, X, y in (("train", report.x_train, report.y_train), ("test", report.x_test, report.y_test)):
-            csv_path = dest_path.parent / f"{dest_path.name}_{split_name}.csv"
-            with open(csv_path, "w", newline="") as f:
-                w = csv.writer(f)
-                for i, row in enumerate(X):
-                    out_row = list(row)
-                    if y is not None:
-                        out_row.append(int(y[i]))
-                    w.writerow(out_row)
-            report.output_paths[f"csv_{split_name}"] = csv_path
+        splits = (("train", report.x_train, report.y_train), ("test", report.x_test, report.y_test))
+        estimated_mb = sum(_estimate_csv_bytes(X, y) for _, X, y in splits) / 1_000_000
+        if estimated_mb > _CSV_SIZE_THRESHOLD_MB:
+            report.warnings.append(
+                f"csv export skipped: estimated size ~{estimated_mb:.0f}MB exceeds the "
+                f"{_CSV_SIZE_THRESHOLD_MB}MB threshold -- npz already has everything "
+                "matador booleanize needs"
+            )
+        else:
+            for split_name, X, y in splits:
+                csv_path = dest_path.parent / f"{dest_path.name}_{split_name}.csv"
+                with open(csv_path, "w", newline="") as f:
+                    w = csv.writer(f)
+                    for i, row in enumerate(X):
+                        out_row = list(row)
+                        if y is not None:
+                            out_row.append(int(y[i]))
+                        w.writerow(out_row)
+                report.output_paths[f"csv_{split_name}"] = csv_path
 
     # "keep_files" -- nothing to do; extracted per-file layout is never
     # deleted, so it's already "kept" alongside the cache/extract dirs.
@@ -165,18 +201,21 @@ def run_ingest(spec: RawDataSourceSpec, output_dir: Path, defaults: "Optional[Ca
             pool = [p for p in extracted if fnmatch.fnmatch(p.name, spec.split.source_member) or p.name == spec.split.source_member]
             if not pool:
                 raise FileNotFoundError(f"split.source_member={spec.split.source_member!r} matched no extracted files")
-        X, y, _meta = reader(pool, spec.parse)
+        X, y, meta = reader(pool, spec.parse)
         x_train, x_test, y_train, y_test = split_random(X, y, spec.split)
+        reader_warnings = list(meta.get("warnings", []))
     else:
         if spec.split.spec_files:
             train_paths, test_paths = resolve_spec_files_split(spec.split.spec_files, extracted, root_by_path)
         else:
             train_paths = resolve_predefined_group(spec.split.train, extracted, root_by_path, role_by_path)
             test_paths = resolve_predefined_group(spec.split.test, extracted, root_by_path, role_by_path)
-        x_train, y_train, _ = reader(train_paths, spec.parse)
-        x_test, y_test, _ = reader(test_paths, spec.parse)
+        x_train, y_train, meta_train = reader(train_paths, spec.parse)
+        x_test, y_test, meta_test = reader(test_paths, spec.parse)
+        reader_warnings = list(meta_train.get("warnings", [])) + list(meta_test.get("warnings", []))
 
     report = IngestReport(key=spec.key, x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
+    report.warnings.extend(reader_warnings)
     _normalize_labels(report)
     _check_expect(report, spec.expect)
     _export(report, spec, output_dir)

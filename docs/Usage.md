@@ -12,13 +12,25 @@ you say you don't need.
 
 ## Step 1 — Fetch/materialize raw data (optional)
 
+**If the dataset is already registered** (see `matador list-datasets` — the
+shared catalog at `data/Raw_Data_Bank.yaml`), reference it by name, no config
+file needed:
+
+```bash
+matador ingest --dataset digits --output-dir /work/raw
+```
+
+**Otherwise**, describe where it is yourself:
+
 ```bash
 cp examples/data_source_config.yaml /work/data_source_config.yaml
 ```
 
-Points at raw data — local or external. Either a standalone spec (fields
-copied out of one entry in a catalog like `data/Raw_Data_Bank.yaml`), or a
-pointer into a shared catalog:
+Either a standalone spec (fields copied out of one entry in a catalog like
+`data/Raw_Data_Bank.yaml` — this is also how you'd add a *new* dataset to
+the shared catalog, for everyone else to reference by name too; see
+[Developer.md § Adding a new dataset](Developer.md#adding-a-new-dataset) for
+a full worked example), or a pointer into a shared catalog:
 
 ```yaml
 catalog: /work/data/Raw_Data_Bank.yaml   # a multi-dataset catalog
@@ -37,19 +49,60 @@ key: digits                               # one entry in it
 matador ingest --config /work/data_source_config.yaml --output-dir /work/raw
 ```
 
-Downloads (or resolves a local path), extracts, parses, and splits the raw
-data, writing `/work/raw/<key>.npz`.
+Either form downloads (or resolves a local path), extracts, parses, and
+splits the raw data, writing `/work/raw/<key>.npz`.
 
 ---
 
 ## Step 2 — Booleanize (optional)
 
-```bash
-cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml
-```
-
 Turns the raw arrays above (or any x/y `.npz` of your own) into the exact
 Boolean format `matador train` expects — no changes needed there.
+
+**Registered datasets can carry a *verified* default encoding recipe**
+(`matador list-datasets` shows which ones — `digits`, `statlog`,
+`mammographic`, `sensorless_drive`, `mnist` as of the shared
+catalog today; verified means it's been checked to reproduce the
+documented Boolean shape exactly). Running one straight is safe:
+
+```bash
+matador booleanize --dataset digits --raw-dir /work/raw --output-dir /work/booleanised
+```
+
+The rest (`sports`, `gesture_phase`, `human_activity`, `emg`) have
+no verified default — usually because a feature-engineering step (windowed
+statistics, MFCC, ...) sits between raw ingest output and their documented
+shape that this pipeline doesn't automate (each one's own `notes` in
+`data/Raw_Data_Bank.yaml` explain why). `matador booleanize --dataset
+<one of these>` (without `--show-recipe`) refuses to run, rather than
+silently applying a guess.
+
+**Every registered dataset can still be inspected, though** — `matador
+list-datasets` shows a one-line summary either way; for the full picture:
+
+```bash
+matador booleanize --dataset digits --show-recipe
+matador booleanize --dataset sports --show-recipe   # works too, prints an
+                                                      # UNVERIFIED skeleton +
+                                                      # that dataset's own notes
+```
+
+Both print a ready-to-use `booleanisation_config.yaml` and exit without
+running anything — for a verified dataset it's the real default; for an
+unverified one it's a generic quantile-fit thermometer skeleton, clearly
+labeled as unvalidated, meant purely as an editable starting point (this is
+also how you'd suggest your own encoding for an unverified dataset, or a
+different one for a verified dataset — edit the shown YAML, save it, then
+run it explicitly with `--config`).
+
+**Either way, to actually use your own recipe** — starting from scratch,
+or from a registered dataset's recipe (verified or not) as a base to edit:
+
+```bash
+cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml
+# — or —
+matador booleanize --dataset digits --show-recipe > /work/booleanisation_config.yaml
+```
 
 ```yaml
 raw_npz: /work/raw/digits.npz
@@ -58,6 +111,8 @@ output_dir: /work/booleanised
 
 default_encoder:
   encoder: thermometer   # thermometer | threshold | onehot | passthrough
+                         # (see Developer.md § Adding a new booleanisation
+                         # technique to add another one)
   bits: 8
   range: [0, 16]
 
@@ -70,8 +125,8 @@ stratify: true
 matador booleanize --config /work/booleanisation_config.yaml
 ```
 
-Outputs `/work/booleanised/digits_train.txt` / `digits_test.txt` (space-
-separated 0/1, last column = label) and a `digits_report.json` — feed these
+Either form outputs `/work/booleanised/digits_train.txt` / `digits_test.txt`
+(space-separated 0/1, last column = label) and a `digits_report.json` — feed these
 straight into `train_data`/`test_data` below.
 
 ---
@@ -110,7 +165,14 @@ output_dir: /work
 matador train --config /work/training_config.yaml
 ```
 
-Outputs under `/work/TMIR/`:
+Outputs under `/work/TMIR/<model_name>/` — **namespaced per model**, so
+training several models (different datasets, or just different
+hyperparameters) into the same `/work` never overwrites an earlier one.
+`model_name` defaults to `train_data`'s filename stem (`digits_train.txt` →
+`digits` — matches `matador booleanize`'s own naming, so the
+`ingest`/`booleanize`/`train` chain needs no extra configuration); set
+`model_name:` explicitly in `training_config.yaml` to override it.
+
 - `TM_TMIR_Clauses_<N>_...yaml` + `.npz` — trained model (TMIR format)
 - `validation_config.yaml` — ready for `matador validate`
 - `rom_inference.py` — standalone provenance script (numpy-only)
@@ -120,14 +182,16 @@ Outputs under `/work/TMIR/`:
 ## Step 5 — Validate model accuracy (optional)
 
 ```bash
-matador validate --config /work/TMIR/validation_config.yaml
+matador validate --config /work/TMIR/<model_name>/validation_config.yaml
 ```
 
 ---
 
 ## Step 6 — Generate RTL
 
-Each backend requires its own config file.
+Each backend requires its own config file. `matador list-backends` shows the
+full set (see [Developer.md § Adding a new accelerator
+backend](Developer.md#adding-a-new-accelerator-backend) to add another one).
 
 ```bash
 # Copy the template for the backend you want:
@@ -145,7 +209,7 @@ Key config fields:
 
 **`vanilla_tiled.yaml`**
 ```yaml
-model_path:      /work/TMIR/<model>.yaml
+model_path:      /work/TMIR/<model_name>/<model>.yaml
 output_dir:      /work
 axis_data_width: 32
 fifo_depth:      16
@@ -155,7 +219,7 @@ clause_slice:    8     # clauses evaluated in parallel
 
 **`vanilla_hardwired.yaml`**
 ```yaml
-model_path:      /work/TMIR/<model>.yaml
+model_path:      /work/TMIR/<model_name>/<model>.yaml
 output_dir:      /work
 axis_data_width: 32
 fifo_depth:      16
@@ -167,7 +231,7 @@ capacity that fits `target_fpga`'s BRAM budget, then reprogrammed with any
 model that fits inside it via a runtime `CMD_LOAD` — no resynthesis needed
 to swap models (see Step 8).
 ```yaml
-model_path:        /work/TMIR/<model>.yaml
+model_path:        /work/TMIR/<model_name>/<model>.yaml
 output_dir:        /work
 target_fpga:        xc7z020   # or xcku040; bram_bits_budget for anything else
 feat_slice:         32
@@ -202,14 +266,17 @@ cp examples/reprogram_config.yaml /work/reprogram_config.yaml
 ```
 
 Lists an ordered sequence of `{model, dataset}` steps — each a trained TMIR
-model plus (optionally) a booleanized dataset to draw test vectors from:
+model plus (optionally) a booleanized dataset to draw test vectors from.
+This is exactly why `matador train`'s output is namespaced per model (Step
+4) — training `digits` and `sports` into the same `/work` leaves both
+models' files intact, ready to reference here by their own paths:
 
 ```yaml
 steps:
-  - model: /work/TMIR/digits.yaml
+  - model: /work/TMIR/digits/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
     dataset: /work/booleanised/digits_test.txt
     n_samples: 20
-  - model: /work/TMIR/sports.yaml
+  - model: /work/TMIR/sports/TM_TMIR_Clauses_400_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
     # no dataset -> uses this model's own embedded test vectors
 ```
 
@@ -241,7 +308,7 @@ Runs the cycle-accurate Python emulator on embedded test vectors and cross-check
 
 ```bash
 matador provenance \
-  --model     /work/TMIR/<model>.npz \
+  --model     /work/TMIR/<model_name>/<model>.npz \
   --test-data /work/data/test.txt
 ```
 
@@ -254,6 +321,31 @@ Produces a JSON report with model fingerprint, dataset SHA-256, accuracy, and co
 ```bash
 matador status    # current pipeline state at a glance
 matador            # splash + status (interactive terminal only)
+matador registry    # everything registered: backends + datasets
 matador faena       # interactive wizard — walks you through whichever
                     # steps above your /work doesn't have yet
 ```
+
+`matador status`/`matador` show one section per pipeline stage (raw data,
+Boolean data, training config, trained models, RTL/backends), each listing
+every item actually in your workspace — not just the newest — with the
+specific next command shown directly under any item that isn't finished yet
+(e.g. one `matador booleanize --dataset ...` line per raw dataset not yet
+booleanized). This is exactly why `matador train`'s output is namespaced per
+model (Step 4): several datasets/models can coexist in one `/work` and the
+dashboard tracks each of them individually.
+
+## Starting over
+
+```bash
+matador clean --dry-run   # preview what would be removed, deletes nothing
+matador clean              # remove generated output (TMIR/, raw/, booleanised/,
+                            # per-backend RTL/) — keeps your edited config YAMLs
+matador clean --configs    # also remove the config YAMLs you edited
+matador clean --all -y     # wipe /work entirely, no confirmation prompt
+```
+
+Always previews what it's about to remove and asks for confirmation unless
+`-y`/`--yes` is given. The default scope only touches directories matador
+itself writes — anything else you've placed in `/work` is left alone unless
+you pass `--all`.

@@ -6,42 +6,11 @@ terminal.  In scripts, pipes, and CI the splash is suppressed automatically.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 from matador import __version__
-
-# ---------------------------------------------------------------------------
-# ASCII bull
-# ---------------------------------------------------------------------------
-
-_BULL = r""" 
-                                                                                                                                                                                                            
-                                $$@$@$$@                              
-                            >$$$$@@$@$$$$$@                           
-                        $$$$@$$@@$@$$@$$$@$.                        
-                        @$$@$$$$$$@@$@$$$$$$@@$$a                      
-                    $$@@$@$$$$$$@@$@$$$$$$@@$$@$$$@$$$$$%            
-                \$$$$@@$@$$$$$$@@$@$$$$$$@@$$$$*$@      '           
-                $$$$$$$@@$$$$$$$$@@$@$$$$$$@@$@$$$$ %@Bx              
-    @        @$$$@$$@$$$@@$$$$$$$$@@$@$$$@$$@@$@$$$                    
-    p$$$$@a  $$@$$$$$$$@$$$$$$$$@@$@$$@   @@$@$$                     
-            @@@$@$$$$@$@@$@$$$$$$@@$@$$$    @$@$.                     
-            $$@@$@$$$$$$B       Q@@$$@$$$$                             
-        @$$@@$@$@                 B$$$$$$.                          
-        $@$@$@                       @$$$                           
-        $$$$                     W$$$$@$                             
-        ]$$                      $$$@$                                
-        @                                                             
-                                                                                                
-    MATADOR                                                                                                                           
-    Automated RTL Accelerator Generator for Tsetlin Machines
-
-    Microsystems Group
-    Newcastle University
-    ----------------------------------------------------------     
-
-"""
 
 # ---------------------------------------------------------------------------
 # Workspace state detection
@@ -79,6 +48,66 @@ def _find_training_config() -> Path | None:
     return None
 
 
+def _training_config_target(cfg_path: "Path | None") -> "str | None":
+    """The model_name the training config's train_data currently points at,
+    via the same suffix-stripping convention matador.models.trainer uses to
+    derive model_name from train_data -- lets the dashboard tell whether an
+    existing training_config.yaml is already aimed at a specific booleanized
+    dataset/model, rather than just "a config exists somewhere"."""
+    if not cfg_path:
+        return None
+    try:
+        import yaml as _yaml
+        data = _yaml.safe_load(cfg_path.read_text()) or {}
+        train_data = data.get("train_data")
+        if not train_data:
+            return None
+        from matador.models.trainer import _derive_model_name
+        return _derive_model_name(Path(train_data))
+    except Exception:
+        return None
+
+
+def _read_model_meta(model_dir: Path) -> dict:
+    meta_path = model_dir / "model_metadata.json"
+    if not meta_path.exists():
+        return {}
+    try:
+        return json.loads(meta_path.read_text())
+    except Exception:
+        return {}
+
+
+def _discover_models() -> list[dict]:
+    """One entry per discovered model directory. matador train namespaces
+    output under TMIR/<model_name>/ (matador/models/trainer.py::export_tmir)
+    so multiple models can coexist in one /work -- grouped by parent
+    directory (npz OR yaml, since a workspace can have either without the
+    other) rather than picking just the newest, so the dashboard is aware of
+    every model actually sitting in the workspace, not just the last one
+    trained."""
+    npz_dirs = {p.parent for p in _WORK.glob("TMIR/**/*.npz")}
+    yaml_dirs = {p.parent for p in _WORK.glob("TMIR/**/TM_TMIR_*.yaml")}
+    model_dirs = sorted(npz_dirs | yaml_dirs, key=lambda d: d.stat().st_mtime, reverse=True)
+
+    models = []
+    for d in model_dirs:
+        npz = next(iter(d.glob("*.npz")), None)
+        yaml_path = next(iter(d.glob("TM_TMIR_*.yaml")), None)
+        val_config = d / "validation_config.yaml"
+        provenance = d / "provenance_report.json"
+        models.append({
+            "name": d.name,
+            "dir": d,
+            "npz": npz,
+            "yaml": yaml_path,
+            "val_config": val_config if val_config.exists() else None,
+            "provenance": provenance if provenance.exists() else None,
+            "meta": _read_model_meta(d),
+        })
+    return models
+
+
 def _workspace_state() -> dict:
     """Inspect /work and return a dict of what has been produced."""
     state: dict = {}
@@ -93,12 +122,14 @@ def _workspace_state() -> dict:
 
     # matador ingest's own npz output (default output dir is /work/raw, but
     # export.path in the config can point anywhere under /work) -- excludes
-    # TMIR/ so a trained model's own .npz isn't mistaken for raw data.
-    _npz_candidates = sorted(
+    # TMIR/ so a trained model's own .npz isn't mistaken for raw data. Every
+    # ingested dataset is kept (not just the newest), since one /work can
+    # legitimately hold several -- that's exactly the scenario matador
+    # train's model_name namespacing exists to support.
+    state["raw_datasets"] = sorted(
         (p for p in _WORK.glob("**/*.npz") if "TMIR" not in p.relative_to(_WORK).parts),
         key=lambda p: p.stat().st_mtime, reverse=True,
     )
-    state["raw_data"] = _npz_candidates[0] if _npz_candidates else None
 
     state["booleanisation_config"] = (_WORK / "booleanisation_config.yaml") \
         if (_WORK / "booleanisation_config.yaml").exists() else None
@@ -106,25 +137,15 @@ def _workspace_state() -> dict:
     # matador booleanize always writes a "<name>_report.json" alongside its
     # <name>_train.txt/<name>_test.txt -- a much more specific signal than
     # guessing a directory name, since export path is user-configurable.
-    state["boolean_report"] = _find_newest("**/*_report.json")
-
-    state["reprogram_config"] = (_WORK / "reprogram_config.yaml") \
-        if (_WORK / "reprogram_config.yaml").exists() else None
-    state["reprogram_suite"] = _find_newest("**/tb_reprogram_suite.v")
+    # Every booleanized dataset is kept, same reasoning as raw_datasets above.
+    state["boolean_datasets"] = sorted(
+        _WORK.glob("**/*_report.json"), key=lambda p: p.stat().st_mtime, reverse=True,
+    )
 
     state["training_config"] = _find_training_config()
 
-    # Use ** recursive glob so files are found regardless of whether output_dir
-    # was /work (→ /work/TMIR/*.npz) or /work/TMIR (→ /work/TMIR/TMIR/*.npz).
-    # NPZ files are always model files; YAML must match TM_TMIR_* to avoid
-    # picking up validation_config.yaml or accelerator_config.yaml.
-    state["tmir_npz"]  = _find_newest("TMIR/**/*.npz")
-    state["tmir_yaml"] = _find_newest("TMIR/**/TM_TMIR_*.yaml")
-
-    state["val_config"] = (
-        _find_newest("TMIR/**/validation_config.yaml") or
-        (_WORK / "validation_config.yaml").exists()
-    )
+    # Every discovered model, not just the newest -- see _discover_models().
+    state["tmir_models"] = _discover_models()
 
     # RTL backends may sit directly under /work or under /work/TMIR depending
     # on the output_dir used during generation. Checked against every
@@ -140,27 +161,7 @@ def _workspace_state() -> dict:
         if any((_WORK / p).exists() for p in (f"{bk}/RTL", f"TMIR/{bk}/RTL"))
     ]
 
-    state["provenance"] = (
-        _find_newest("TMIR/**/provenance_report.json") or
-        _find_newest("provenance_report.json")
-    )
-
     return state
-
-
-def _read_model_meta(state: dict) -> dict:
-    """Read model_metadata.json from the TMIR directory if available."""
-    import json
-    model_path = state.get("tmir_npz") or state.get("tmir_yaml")
-    if not model_path:
-        return {}
-    meta = model_path.parent / "model_metadata.json"
-    if meta.exists():
-        try:
-            return json.loads(meta.read_text())
-        except Exception:
-            pass
-    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -176,8 +177,22 @@ _DIM   = "\033[2m"
 _RESET = "\033[0m"
 
 
+def _model_summary(model: dict) -> str:
+    meta = model["meta"]
+    if meta:
+        n_c = meta.get("n_clauses_total", "?")
+        n_cls = meta.get("n_classes", "?")
+        n_f = meta.get("n_features", "?")
+        fp = meta.get("model_fingerprint", "")
+        fp_s = f"  …{fp[-12:]}" if fp else ""
+        return f"{n_c} clauses · {n_cls} classes · {n_f} features{fp_s}"
+    return str(model["dir"])
+
+
 def _dm(state: dict) -> list[str]:
-    """Return workspace-aware guidance: full status summary + all available actions."""
+    """Return workspace-aware guidance: per-stage status with the next
+    action shown directly under each item that needs one, not bundled into
+    one block at the end."""
     lines: list[str] = []
 
     # ── No /work mounted ────────────────────────────────────────────────────
@@ -190,29 +205,54 @@ def _dm(state: dict) -> list[str]:
         ]
         return lines
 
+    raw_datasets = state.get("raw_datasets", [])
+    boolean_datasets = state.get("boolean_datasets", [])
+    tmir_models = state.get("tmir_models", [])
+    rtl_backends = state.get("rtl_backends", [])
     has_ds_cfg   = bool(state.get("data_source_config"))
-    has_raw      = bool(state.get("raw_data"))
     has_bool_cfg = bool(state.get("booleanisation_config"))
-    has_bool     = bool(state.get("boolean_report"))
     has_cfg  = bool(state.get("training_config"))
-    has_tmir = bool(state.get("tmir_npz") or state.get("tmir_yaml"))
-    has_rtl  = bool(state.get("rtl_backends"))
-    has_prov = bool(state.get("provenance"))
-    val_cfg  = state.get("val_config")
-    model    = state.get("tmir_npz") or state.get("tmir_yaml")
-    meta     = _read_model_meta(state) if has_tmir else {}
-
     cfg = state.get("training_config")
 
+    # Pre-made Boolean datasets — already-committed train/test files (e.g.
+    # from data.zip) for a registered catalog entry, requiring no `matador
+    # ingest`/`matador booleanize` at all. Not every registered dataset's
+    # archive is pre-extracted in every checkout, so this is a real
+    # existence check (registry.booleanised_files_exist), not just "is it
+    # in the catalog."
+    try:
+        from matador.preprocessing import registry as _dataset_registry
+        all_registered = set(_dataset_registry.list_datasets())
+        premade = [n for n in _dataset_registry.list_datasets() if _dataset_registry.booleanised_files_exist(n)]
+    except Exception:
+        all_registered = set()
+        premade = []
+
     # ── Nothing here at all ─────────────────────────────────────────────────
-    if not any((has_ds_cfg, has_raw, has_bool_cfg, has_bool, has_cfg, has_tmir)):
+    if not any((has_ds_cfg, raw_datasets, has_bool_cfg, boolean_datasets, has_cfg, tmir_models)):
         lines += [
             f"{_GOLD}  Nothing here yet.{_RESET}",
             "",
-            f"  Already have Boolean (0/1) training data? Set up training directly:",
+        ]
+        if premade:
+            lines += [
+                f"  Fastest start — these registered datasets already have ready-made",
+                f"  Boolean files, no ingest/booleanize needed:",
+                f"    {_CYAN}matador registry{_RESET}",
+            ]
+            for n in premade:
+                files = _dataset_registry.resolve_booleanised_files(n)
+                lines.append(f"    {_DIM}{n}: train_data={files[0]}  test_data={files[1]}{_RESET}")
+            lines.append("")
+        lines += [
+            f"  Already have your own Boolean (0/1) training data? Set up training directly:",
             f"    {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}",
             "",
-            f"  Starting from raw (non-Boolean) or external data instead? Begin upstream:",
+            f"  Starting from raw (non-Boolean) or external data instead? Check if it's",
+            f"  already registered first:",
+            f"    {_CYAN}matador registry{_RESET}",
+            f"    {_CYAN}matador ingest --dataset <name> --output-dir /work/raw{_RESET}",
+            f"  Not registered? Describe it yourself:",
             f"    {_CYAN}cp examples/data_source_config.yaml /work/data_source_config.yaml{_RESET}",
             "",
             f"  Then, either way:",
@@ -220,157 +260,148 @@ def _dm(state: dict) -> list[str]:
         ]
         return lines
 
-    # ── Status summary ───────────────────────────────────────────────────────
     tick = f"{_GREEN}✓{_RESET}"
     dash = f"{_DIM}–{_RESET}"
 
-    lines.append(f"  {'Status':}")
+    boolean_names = {p.name.removesuffix("_report.json") for p in boolean_datasets}
+    model_names = {m["name"] for m in tmir_models}
+
+    lines.append(f"  {'Status & actions'}")
     lines.append(f"  {'─' * 56}")
-
-    # Raw data ingestion (optional — a user with their own Boolean data
-    # skips straight to training config below)
-    if has_raw:
-        lines.append(f"  {tick} raw data ingested  {_DIM}{state['raw_data']}{_RESET}")
-    elif has_ds_cfg:
-        lines.append(f"  {dash} raw data ingested  {_DIM}configured, not yet run{_RESET}")
-
-    # Booleanization (optional — same caveat)
-    if has_bool:
-        report = state["boolean_report"]
-        lines.append(f"  {tick} data booleanized   {_DIM}{report.parent}{_RESET}")
-    elif has_bool_cfg:
-        lines.append(f"  {dash} data booleanized   {_DIM}configured, not yet run{_RESET}")
-
-    # Training config
-    if has_cfg:
-        lines.append(f"  {tick} training config  {_DIM}{cfg}{_RESET}")
-    else:
-        lines.append(f"  {dash} training config  {_DIM}not found{_RESET}")
-
-    # Trained model
-    if has_tmir and meta:
-        n_c  = meta.get("n_clauses_total", "?")
-        n_cls = meta.get("n_classes", "?")
-        n_f  = meta.get("n_features", "?")
-        fp   = meta.get("model_fingerprint", "")
-        fp_s = f"  …{fp[-12:]}" if fp else ""
-        lines.append(f"  {tick} model trained    {_DIM}{n_c} clauses · {n_cls} classes · {n_f} features{fp_s}{_RESET}")
-    elif has_tmir:
-        lines.append(f"  {tick} model trained    {_DIM}{model.name if model else 'TMIR/'}{_RESET}")
-    else:
-        lines.append(f"  {dash} model trained    {_DIM}not yet{_RESET}")
-
-    # RTL
-    backends = state.get("rtl_backends", [])
-    if backends:
-        lines.append(f"  {tick} RTL generated    {_DIM}{' + '.join(backends)}{_RESET}")
-    else:
-        lines.append(f"  {dash} RTL generated    {_DIM}not yet{_RESET}")
-
-    # Provenance
-    if has_prov:
-        lines.append(f"  {tick} provenance       {_DIM}report filed{_RESET}")
-    else:
-        lines.append(f"  {dash} provenance       {_DIM}not yet{_RESET}")
-
     lines.append("")
 
-    # ── Next actions (show everything applicable) ────────────────────────────
-    lines.append(f"  {'Available actions':}")
-    lines.append(f"  {'─' * 56}")
+    # ── Pre-made datasets shortcut (only while nothing's been started) ──────
+    if premade and not any((raw_datasets, boolean_datasets, has_cfg, tmir_models)):
+        lines.append(
+            f"  {tick} pre-made datasets  {_DIM}{len(premade)} available, no ingest/booleanize "
+            f"needed — matador registry{_RESET}"
+        )
+        lines.append(f"    Skip ingest/booleanize entirely — use one directly:")
+        for n in premade:
+            files = _dataset_registry.resolve_booleanised_files(n)
+            lines.append(f"    {_DIM}{n}: train_data={files[0]}  test_data={files[1]}{_RESET}")
+        lines.append(f"    {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}")
+        lines.append(f"    {_DIM}  (set train_data/test_data to one of the paths above){_RESET}")
+        lines.append("")
 
-    if has_ds_cfg and not has_raw:
-        lines += [
-            f"  Fetch/materialize raw data:",
-            f"    {_CYAN}matador ingest --config {state['data_source_config']}{_RESET}",
-            "",
-        ]
+    # ── Raw data ─────────────────────────────────────────────────────────────
+    lines.append(f"  {_BOLD}Raw data{_RESET}")
+    if raw_datasets:
+        for p in raw_datasets:
+            name = p.stem
+            done = name in boolean_names
+            lines.append(f"  {tick if done else dash} {name:<16} {_DIM}{p}{_RESET}")
+            if not done:
+                if name in all_registered:
+                    lines.append(f"    → {_CYAN}matador booleanize --dataset {name} --raw-dir {p.parent}{_RESET}")
+                else:
+                    lines.append(f"    → {_CYAN}cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml{_RESET}")
+                    lines.append(f"    {_DIM}  point raw_npz at: {p}{_RESET}")
+                    lines.append(f"    → {_CYAN}matador booleanize --config /work/booleanisation_config.yaml{_RESET}")
+    elif has_ds_cfg:
+        lines.append(f"  {dash} configured, not yet run  {_DIM}{state['data_source_config']}{_RESET}")
+        lines.append(f"    → {_CYAN}matador ingest --config {state['data_source_config']}{_RESET}")
+    else:
+        lines.append(f"  {dash} none yet")
+        lines.append(f"    → {_CYAN}matador registry{_RESET}  {_DIM}(check if it's already registered){_RESET}")
+        lines.append(f"    → {_CYAN}matador ingest --dataset <name> --output-dir /work/raw{_RESET}")
+    lines.append("")
 
-    if has_raw and not has_bool:
-        if not has_bool_cfg:
-            lines += [
-                f"  Booleanize the ingested data  {_DIM}(copy a config template first){_RESET}:",
-                f"    {_CYAN}cp examples/booleanisation_config.yaml /work/booleanisation_config.yaml{_RESET}",
-                f"    {_DIM}  point raw_npz at: {state['raw_data']}{_RESET}",
-                f"    {_CYAN}matador booleanize --config /work/booleanisation_config.yaml{_RESET}",
-                "",
-            ]
-        else:
-            lines += [
-                f"  Booleanize the ingested data:",
-                f"    {_CYAN}matador booleanize --config {state['booleanisation_config']}{_RESET}",
-                "",
-            ]
+    # ── Boolean data ─────────────────────────────────────────────────────────
+    lines.append(f"  {_BOLD}Boolean data{_RESET}")
+    if boolean_datasets:
+        for p in boolean_datasets:
+            name = p.name.removesuffix("_report.json")
+            train_txt = p.parent / f"{name}_train.txt"
+            test_txt = p.parent / f"{name}_test.txt"
+            done = name in model_names
+            lines.append(f"  {tick if done else dash} {name:<16} {_DIM}{p.parent}{_RESET}")
+            if not done:
+                if has_cfg:
+                    lines.append(f"    → {_CYAN}matador train --config {cfg}{_RESET}")
+                    lines.append(f"    {_DIM}  (make sure train_data/test_data point at {train_txt.name}/{test_txt.name} above){_RESET}")
+                else:
+                    lines.append(f"    → {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}")
+                    lines.append(f"    {_DIM}  set train_data: {train_txt}{_RESET}")
+                    lines.append(f"    {_DIM}  set test_data:  {test_txt}{_RESET}")
+                    lines.append(f"    → {_CYAN}matador train --config /work/training_config.yaml{_RESET}")
+    elif has_bool_cfg:
+        lines.append(f"  {dash} configured, not yet run  {_DIM}{state['booleanisation_config']}{_RESET}")
+        lines.append(f"    → {_CYAN}matador booleanize --config {state['booleanisation_config']}{_RESET}")
+    else:
+        lines.append(f"  {dash} none yet")
+    lines.append("")
 
-    if has_bool and not has_cfg:
-        report = state["boolean_report"]
-        name = report.name.removesuffix("_report.json")
-        train_txt = report.parent / f"{name}_train.txt"
-        test_txt = report.parent / f"{name}_test.txt"
-        lines += [
-            f"  Train on the booleanized data  {_DIM}(copy a config template first){_RESET}:",
-            f"    {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}",
-            f"    {_DIM}  set train_data: {train_txt}{_RESET}",
-            f"    {_DIM}  set test_data:  {test_txt}{_RESET}",
-            f"    {_CYAN}matador train --config /work/training_config.yaml{_RESET}",
-            "",
-        ]
+    # ── Training config (a single shared file — covers users who bring
+    #     their own Boolean data with no matador-booleanize report.json at
+    #     all, which the per-dataset view above can't see) ───────────────────
+    lines.append(f"  {_BOLD}Training config{_RESET}")
+    if has_cfg:
+        lines.append(f"  {tick} {_DIM}{cfg}{_RESET}")
+        target = _training_config_target(cfg)
+        # Only prompt here if its target isn't already covered by a
+        # Boolean-data action above (or already trained) -- otherwise this
+        # would just repeat the same "matador train" line twice.
+        if target not in boolean_names and target not in model_names:
+            lines.append(f"    → {_CYAN}matador train --config {cfg}{_RESET}")
+    else:
+        lines.append(f"  {dash} not found")
+        lines.append(f"    {_DIM}(needed if you have your own Boolean (0/1) data, not produced via matador booleanize){_RESET}")
+        lines.append(f"    → {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}")
+    lines.append("")
 
-    if has_cfg and not has_tmir:
-        lines += [
-            f"  Train the model:",
-            f"    {_CYAN}matador train --config {cfg}{_RESET}",
-            "",
-        ]
+    # ── Trained models (TMIR) ────────────────────────────────────────────────
+    lines.append(f"  {_BOLD}Trained models{_RESET}")
+    if tmir_models:
+        for m in tmir_models:
+            lines.append(f"  {tick} {m['name']:<16} {_DIM}{_model_summary(m)}{_RESET}")
+            if m["val_config"]:
+                lines.append(f"    → validate:    {_CYAN}matador validate --config {m['val_config']}{_RESET}")
+            if m["npz"] and not m["provenance"]:
+                lines.append(f"    → provenance:  {_CYAN}matador provenance --model {m['npz']} --test-data /work/data/test.txt{_RESET}")
+    else:
+        lines.append(f"  {dash} none yet")
+    lines.append("")
 
-    if has_tmir:
-        if val_cfg and isinstance(val_cfg, Path):
-            lines += [
-                f"  Validate model accuracy:",
-                f"    {_CYAN}matador validate --config {val_cfg}{_RESET}",
-                "",
-            ]
-
-        if not has_rtl:
-            from matador.backends.registry import list_backends as _lb, describe as _desc
-            lines.append(f"  Generate RTL  {_DIM}(copy a config template first){_RESET}:")
-            for bk in _lb():
-                lines.append(f"    {_CYAN}matador generate --backend {bk} --config /work/{bk}.yaml{_RESET}")
-                lines.append(f"    {_DIM}  cp examples/{bk}.yaml /work/{bk}.yaml{_RESET}")
-            lines.append("")
-        else:
-            from matador.backends.registry import get as _get_backend
-
-            for bk in backends:
-                lines += [
-                    f"  Simulate RTL ({bk}):",
-                    f"    {_CYAN}matador simulate --backend {bk} --config /work/{bk}.yaml{_RESET}",
-                    "",
-                ]
+    # ── RTL / backends ───────────────────────────────────────────────────────
+    lines.append(f"  {_BOLD}RTL / backends{_RESET}")
+    if not tmir_models:
+        lines.append(f"  {dash} train a model first")
+    else:
+        from matador.backends.registry import get as _get_backend, list_backends as _lb
+        all_backends = _lb()
+        for bk in all_backends:
+            if bk in rtl_backends:
+                lines.append(f"  {tick} {bk:<16} {_DIM}RTL generated{_RESET}")
+                lines.append(f"    → simulate:  {_CYAN}matador simulate --backend {bk} --config /work/{bk}.yaml{_RESET}")
                 try:
                     supports_reprogramming = _get_backend(bk)().supports_reprogramming
                 except Exception:
                     supports_reprogramming = False
                 if supports_reprogramming:
-                    lines += [
-                        f"  Prove multi-model reprogramming ({bk})  {_DIM}(copy a config template first){_RESET}:",
-                        f"    {_CYAN}cp examples/reprogram_config.yaml /work/reprogram_config.yaml{_RESET}",
-                        f"    {_CYAN}matador reprogram-suite --backend {bk} --config /work/{bk}.yaml "
-                        f"--reprogram-config /work/reprogram_config.yaml{_RESET}",
-                        "",
-                    ]
-            lines += [
-                f"  Emulate (software, no simulator needed):",
-                f"    {_CYAN}matador emulate --backend {backends[0]} --config /work/{backends[0]}.yaml --verify{_RESET}",
-                "",
-            ]
+                    lines.append(f"    → reprogram-suite (multi-model):")
+                    lines.append(f"      {_CYAN}cp examples/reprogram_config.yaml /work/reprogram_config.yaml{_RESET}")
+                    lines.append(
+                        f"      {_CYAN}matador reprogram-suite --backend {bk} --config /work/{bk}.yaml "
+                        f"--reprogram-config /work/reprogram_config.yaml{_RESET}"
+                    )
+            else:
+                lines.append(f"  {dash} {bk:<16} {_DIM}not yet generated{_RESET}")
+                lines.append(f"    → {_CYAN}cp examples/{bk}.yaml /work/{bk}.yaml{_RESET}")
+                lines.append(f"    → {_CYAN}matador generate --backend {bk} --config /work/{bk}.yaml{_RESET}")
+        if rtl_backends:
+            lines.append(
+                f"  {_DIM}Emulate (software, no simulator needed):  "
+                f"matador emulate --backend {rtl_backends[0]} --config /work/{rtl_backends[0]}.yaml --verify{_RESET}"
+            )
+    lines.append("")
 
-        if model and not has_prov:
-            lines += [
-                f"  Provenance report  {_DIM}(ROM-based inference over full test set){_RESET}:",
-                f"    {_CYAN}matador provenance --model {model} --test-data /work/data/test.txt{_RESET}",
-                "",
-            ]
+    # ── Start over ────────────────────────────────────────────────────────────
+    lines += [
+        f"  Start over  {_DIM}(preview first, nothing is removed without confirmation){_RESET}:",
+        f"    {_CYAN}matador clean --dry-run{_RESET}",
+        "",
+    ]
 
     return lines
 
@@ -390,19 +421,18 @@ def show_if_interactive() -> bool:
 
     state = _workspace_state()
 
-    # ── Bull ──────────────────────────────────────────────────────────────
-    for line in _BULL.splitlines():
-        print(f"{_GOLD}{line}{_RESET}")
-
-    # ── Registered backends (from registry — dynamic) ──────────────────────
-    try:
-        from matador.backends.registry import list_backends as _lb, describe as _desc
-        print(f"  {_DIM}Registered backends:{_RESET}")
-        for bk in _lb():
-            print(f"    {_CYAN}{bk:<22}{_RESET}  {_DIM}{_desc(bk)}{_RESET}")
-        print()
-    except Exception:
-        pass
+    # ── Header ────────────────────────────────────────────────────────────
+    print()
+    print(f"  {_BOLD}{_GOLD}MATADOR{_RESET}")
+    print(f"  {_DIM}Trains Tsetlin Machines and takes them all the way to{_RESET}")
+    print(f"  {_DIM}synthesisable Verilog RTL: ingest → booleanize → train →{_RESET}")
+    print(f"  {_DIM}generate → simulate/emulate, with multi-model runtime{_RESET}")
+    print(f"  {_DIM}reprogramming and reproducibility tooling built in.{_RESET}")
+    print(f"  {_DIM}Microsystems Group · Newcastle University{_RESET}")
+    print(f"  {'─' * 56}")
+    print()
+    print(f"  {_DIM}Registered datasets & backends:  matador registry{_RESET}")
+    print()
 
     # ── DM guidance ───────────────────────────────────────────────────────
     for line in _dm(state):
@@ -411,6 +441,7 @@ def show_if_interactive() -> bool:
     print()
     print(f"  {_DIM}All commands:  matador --help{_RESET}")
     print(f"  {_DIM}Guided flow:   matador faena{_RESET}")
+    print(f"  {_DIM}Add your own dataset/technique/backend:  see docs/Developer.md{_RESET}")
     print()
 
     return True
