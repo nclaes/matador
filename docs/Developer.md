@@ -24,7 +24,7 @@ training_config.yaml        matador train        TMIR model
 
 Deeper design rationale for the ingest/booleanize stages (why things are shaped the way
 they are, not just how to add to them) is in [Preprocessing pipeline — design
-notes](#preprocessing-pipeline-design-notes) at the end of this document.
+notes](#preprocessing-pipeline--design-notes) at the end of this document.
 
 ---
 
