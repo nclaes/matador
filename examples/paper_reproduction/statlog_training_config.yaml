@@ -1,0 +1,17 @@
+# Statlog (Vehicle Silhouettes) — paper-reproduction training config
+# (arXiv:2502.05640 Table 1).
+
+tm_type: vanilla
+clauses: 300
+classes: 4
+features: 360
+s: 3
+T: 16
+epochs: 100
+max_included_literals: 32
+seed: 42
+
+train_data: /work/booleanised/statlog_paper_train.txt
+test_data: /work/booleanised/statlog_paper_test.txt
+model_name: statlog_paper
+output_dir: /work

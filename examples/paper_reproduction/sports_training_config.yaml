@@ -1,0 +1,20 @@
+# Sport activity (DSA) — paper-reproduction training config
+# (arXiv:2502.05640 Table 1). classes=19 (the full upstream activity set --
+# see ../../README.md's dataset table and docs/walkthroughs/vanilla_gp_tiled.md
+# for how this was verified). features=5625 (this recipe's actual output,
+# not the paper's 45 -- see the booleanisation config's own comment).
+
+tm_type: vanilla
+clauses: 150
+classes: 19
+features: 5625
+s: 4
+T: 12
+epochs: 50
+max_included_literals: 32
+seed: 42
+
+train_data: /work/booleanised/sports_paper_train.txt
+test_data: /work/booleanised/sports_paper_test.txt
+model_name: sports_paper
+output_dir: /work

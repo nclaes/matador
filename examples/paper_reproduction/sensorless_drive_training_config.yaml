@@ -1,0 +1,17 @@
+# Sensorless Drive Diagnosis — paper-reproduction training config
+# (arXiv:2502.05640 Table 1).
+
+tm_type: vanilla
+clauses: 300
+classes: 11
+features: 144
+s: 10
+T: 15
+epochs: 100
+max_included_literals: 32
+seed: 42
+
+train_data: /work/booleanised/sensorless_drive_paper_train.txt
+test_data: /work/booleanised/sensorless_drive_paper_test.txt
+model_name: sensorless_drive_paper
+output_dir: /work

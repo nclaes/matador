@@ -1,0 +1,17 @@
+# Statlog (Vehicle Silhouettes) — paper-reproduction booleanization. 18 raw
+# features x 20 bits = 360 bits, exactly matching Features=18 / Literals=720
+# in arXiv:2502.05640 Table 1 (Literals/2 = 360 target bits).
+
+raw_npz: /work/raw/statlog.npz
+name: statlog_paper
+output_dir: /work/booleanised
+
+features: []
+default_encoder:
+  encoder: thermometer
+  bits: 20
+  quantile: true
+
+test_size: 0.2
+seed: 0
+stratify: true

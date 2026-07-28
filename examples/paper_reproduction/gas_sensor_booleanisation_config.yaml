@@ -1,0 +1,19 @@
+# Gas sensor (UCI "Gas Sensor Array Drift at Different Concentrations")
+# — paper-reproduction booleanization. This dataset happens to need no
+# approximation: 128 raw features x 1 bit = 128 bits, exactly matching
+# Features=128 in arXiv:2502.05640 Table 1 (identical to
+# data/Raw_Data_Bank.yaml's own registered default for this dataset).
+
+raw_npz: /work/raw/gas_sensor.npz
+name: gas_sensor_paper
+output_dir: /work/booleanised
+
+features: []
+default_encoder:
+  encoder: threshold
+  bits: 1
+  quantile: true
+
+test_size: 0.2
+seed: 0
+stratify: true

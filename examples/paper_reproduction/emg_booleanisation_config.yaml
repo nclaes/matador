@@ -1,0 +1,20 @@
+# EMG (UCI "EMG Data for Gestures") — paper-reproduction booleanization.
+# See ../paper_reproduction/README.md for the full derivation and an
+# important caveat: matador's ingest reads raw per-timestep 8-channel rows
+# (~4.2M samples), not the windowed/RMS representation the paper's
+# Features=160 almost certainly implies. This hits the paper's bit-count
+# target (8 channels x 20 bits = 160) but on a different sample granularity.
+
+raw_npz: /work/raw/emg.npz
+name: emg_paper
+output_dir: /work/booleanised
+
+features: []
+default_encoder:
+  encoder: thermometer
+  bits: 20
+  quantile: true
+
+test_size: 0.2
+seed: 0
+stratify: true

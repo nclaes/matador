@@ -1,0 +1,18 @@
+# Human Activity Recognition (UCI HAR) — paper-reproduction training config
+# (arXiv:2502.05640 Table 1). features=561 (this recipe's actual output);
+# the paper reports 560 -- see the booleanisation config's own comment.
+
+tm_type: vanilla
+clauses: 200
+classes: 6
+features: 561
+s: 6
+T: 14
+epochs: 250
+max_included_literals: 32
+seed: 42
+
+train_data: /work/booleanised/human_activity_paper_train.txt
+test_data: /work/booleanised/human_activity_paper_test.txt
+model_name: human_activity_paper
+output_dir: /work

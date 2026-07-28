@@ -1,0 +1,16 @@
+# Gas sensor — paper-reproduction training config (arXiv:2502.05640 Table 1).
+
+tm_type: vanilla
+clauses: 300
+classes: 6
+features: 128
+s: 10
+T: 12
+epochs: 200
+max_included_literals: 32
+seed: 42
+
+train_data: /work/booleanised/gas_sensor_paper_train.txt
+test_data: /work/booleanised/gas_sensor_paper_test.txt
+model_name: gas_sensor_paper
+output_dir: /work

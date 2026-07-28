@@ -1,0 +1,25 @@
+# Sport activity (UCI Daily and Sports Activities, DSA) — paper-reproduction
+# booleanization. IMPORTANT: this does NOT match the paper's Features=45 --
+# see ../paper_reproduction/README.md's caveat. Matador's ingest flattens
+# each 125-row segment file into one 5625-dimension sample; the paper's 45
+# raw features implies a per-timestep sample instead, a genuinely different
+# granularity that a booleanization bit-width choice can't fix. This uses
+# a 1-bit threshold over all 5625 raw dimensions -- internally consistent,
+# not literal parity with the paper.
+# Unverified dataset (matador booleanize --dataset sports alone refuses to
+# run) -- this config is what makes it run, using the FULL 19-class
+# upstream data (verified via live ingest), not the old 10-class subset.
+
+raw_npz: /work/raw/sports.npz
+name: sports_paper
+output_dir: /work/booleanised
+
+features: []
+default_encoder:
+  encoder: threshold
+  bits: 1
+  quantile: true
+
+test_size: 0.2
+seed: 0
+stratify: true

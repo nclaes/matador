@@ -1,0 +1,23 @@
+# Gesture Phase Segmentation (paper calls this "GPS") — paper-reproduction
+# booleanization. See ../paper_reproduction/README.md: the paper's
+# Features=18 is the raw sensor-channel file's column count, but matador's
+# recipe deliberately reads the already-processed va3 file (32 columns) --
+# see data/Raw_Data_Bank.yaml's own gesture_phase notes for why. 32 raw
+# columns x 6 bits = 192 bits, an approximation of the paper's 180-bit
+# target (Literals=360 / 2), not an exact match.
+# Unverified dataset (matador booleanize --dataset gesture_phase alone
+# refuses to run) -- this config is what makes it run.
+
+raw_npz: /work/raw/gesture_phase.npz
+name: gesture_phase_paper
+output_dir: /work/booleanised
+
+features: []
+default_encoder:
+  encoder: thermometer
+  bits: 6
+  quantile: true
+
+test_size: 0.2
+seed: 0
+stratify: true

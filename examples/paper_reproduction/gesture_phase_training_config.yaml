@@ -1,0 +1,20 @@
+# Gesture Phase Segmentation ("GPS" in the paper) — paper-reproduction
+# training config (arXiv:2502.05640 Table 1). features=192 is what this
+# recipe's booleanization actually produces (32 raw columns x 6 bits) --
+# not the same as Literals/2=180 the paper reports, see the booleanisation
+# config's own comment and ../README.md for why.
+
+tm_type: vanilla
+clauses: 500
+classes: 5
+features: 192
+s: 9
+T: 25
+epochs: 250
+max_included_literals: 32
+seed: 42
+
+train_data: /work/booleanised/gesture_phase_paper_train.txt
+test_data: /work/booleanised/gesture_phase_paper_test.txt
+model_name: gesture_phase_paper
+output_dir: /work

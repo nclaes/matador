@@ -71,7 +71,7 @@ Boolean format `matador train` expects — no changes needed there.
 
 **Registered datasets can carry a *verified* default encoding recipe**
 (`matador list-datasets` shows which ones — `digits`, `statlog`,
-`mammographic`, `sensorless_drive`, `mnist` as of the shared
+`mammographic`, `sensorless_drive`, `gas_sensor`, `mnist` as of the shared
 catalog today; verified means it's been checked to reproduce the
 documented Boolean shape exactly). Running one straight is safe:
 

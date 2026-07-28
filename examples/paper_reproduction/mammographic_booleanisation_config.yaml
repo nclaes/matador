@@ -1,0 +1,17 @@
+# Mammographic Mass — paper-reproduction booleanization. 5 raw features x
+# 3 bits = 15 bits, exactly matching Features=5 / Literals=30 in
+# arXiv:2502.05640 Table 1 (Literals/2 = 15 target bits).
+
+raw_npz: /work/raw/mammographic.npz
+name: mammographic_paper
+output_dir: /work/booleanised
+
+features: []
+default_encoder:
+  encoder: thermometer
+  bits: 3
+  quantile: true
+
+test_size: 0.2
+seed: 0
+stratify: true

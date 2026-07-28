@@ -1,0 +1,20 @@
+# Mammographic Mass — paper-reproduction training config
+# (arXiv:2502.05640 Table 1).
+
+tm_type: vanilla
+clauses: 50
+classes: 2
+features: 15
+s: 3
+T: 7
+epochs: 100
+# max_included_literals isn't a paper-reported hyperparameter; 30 = features*2
+# = no effective limit (the generic 32 default from examples/training_config.yaml
+# exceeds features*2 here since this dataset booleanizes to only 15 bits).
+max_included_literals: 30
+seed: 42
+
+train_data: /work/booleanised/mammographic_paper_train.txt
+test_data: /work/booleanised/mammographic_paper_test.txt
+model_name: mammographic_paper
+output_dir: /work

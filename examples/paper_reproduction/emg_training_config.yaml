@@ -1,0 +1,19 @@
+# EMG — paper-reproduction training config (arXiv:2502.05640 Table 1).
+# clauses/T/s/epochs are the paper's exact values (clauses = per class,
+# confirmed via matador/models/tmu_adapter.py). ~4.2M samples x 200 epochs
+# is genuinely slow — budget real time, or reduce epochs for a smoke test.
+
+tm_type: vanilla
+clauses: 300
+classes: 8
+features: 160
+s: 7.5
+T: 14
+epochs: 200
+max_included_literals: 32
+seed: 42
+
+train_data: /work/booleanised/emg_paper_train.txt
+test_data: /work/booleanised/emg_paper_test.txt
+model_name: emg_paper
+output_dir: /work

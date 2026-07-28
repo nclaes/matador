@@ -1,0 +1,17 @@
+# Sensorless Drive Diagnosis — paper-reproduction booleanization. 48 raw
+# features x 3 bits = 144 bits, exactly matching Features=48 / Literals=288
+# in arXiv:2502.05640 Table 1 (Literals/2 = 144 target bits).
+
+raw_npz: /work/raw/sensorless_drive.npz
+name: sensorless_drive_paper
+output_dir: /work/booleanised
+
+features: []
+default_encoder:
+  encoder: thermometer
+  bits: 3
+  quantile: true
+
+test_size: 0.2
+seed: 0
+stratify: true

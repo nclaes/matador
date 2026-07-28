@@ -83,9 +83,15 @@ registry` (or `matador list-datasets`) for the live, authoritative list (source:
 | `mammographic` | Mammographic Mass | yes |
 | `emg` | EMG Data for Gestures | no (`--show-recipe` only) |
 | `sensorless_drive` | Dataset for Sensorless Drive Diagnosis | yes |
+| `gas_sensor` | Gas Sensor Array Drift Dataset at Different Concentrations | yes |
 | `mnist` | MNIST handwritten digits | yes |
 
 See [docs/Developer.md](docs/Developer.md#adding-a-new-dataset) to add another one.
+
+Want to reproduce a specific published TM benchmark's exact per-dataset
+hyperparameters instead of matador's own defaults? See
+[examples/paper_reproduction/](examples/paper_reproduction/) — currently
+covers all 8 datasets in arXiv:2502.05640's Table 1.
 
 ---
 

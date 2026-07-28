@@ -1,0 +1,18 @@
+# Human Activity Recognition (UCI HAR) — paper-reproduction booleanization.
+# 561 raw features x 1 bit = 561 bits, effectively matching Features=560 in
+# arXiv:2502.05640 Table 1 (off by one -- likely a dropped column or a
+# rounding note in the paper; not chased further, see ../README.md).
+
+raw_npz: /work/raw/human_activity.npz
+name: human_activity_paper
+output_dir: /work/booleanised
+
+features: []
+default_encoder:
+  encoder: threshold
+  bits: 1
+  quantile: true
+
+test_size: 0.2
+seed: 0
+stratify: true
