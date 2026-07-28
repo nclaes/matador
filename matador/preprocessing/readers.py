@@ -258,6 +258,53 @@ def read_cifar_pickle(paths: list[Path], spec: ParseSpec) -> tuple[np.ndarray, "
 
 
 # ---------------------------------------------------------------------------
+# libsvm — sparse "<class>;<aux> <idx>:<val> <idx>:<val> ..." lines (1-based
+# feature indices). The token right after ';' and before the first idx:val
+# pair is a per-instance auxiliary value some UCI dumps embed there (e.g.
+# gas_sensor's concentration) — recorded per-row but never treated as a
+# feature; there is no catalog knob to keep it, since no current dataset
+# needs it as one. Feature indices must be dense/contiguous (1..n) within a
+# row; a row missing indices is skipped (consistent with read_csv's
+# malformed-row handling) rather than silently zero-filled, since a real
+# gap here would mean a genuinely different feature count, not padding.
+# ---------------------------------------------------------------------------
+
+def read_libsvm(paths: list[Path], spec: ParseSpec) -> tuple[np.ndarray, "np.ndarray | None", dict[str, Any]]:
+    X_parts: list[np.ndarray] = []
+    y_parts: list[np.ndarray] = []
+    n_features: "int | None" = None
+    n_skipped = 0
+    for path in paths:
+        rows_X: list[list[float]] = []
+        rows_y: list[int] = []
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            cls_str, rest = line.split(";", 1)
+            pairs = [tok for tok in rest.split() if ":" in tok]
+            idx_val = {}
+            for tok in pairs:
+                idx_s, val_s = tok.split(":", 1)
+                idx_val[int(idx_s)] = float(val_s)
+            n = max(idx_val) if idx_val else 0
+            if n_features is None:
+                n_features = n
+            if n != n_features or sorted(idx_val) != list(range(1, n + 1)):
+                n_skipped += 1
+                continue
+            rows_X.append([idx_val[i] for i in range(1, n_features + 1)])
+            rows_y.append(spec.label_map[cls_str] if spec.label_map else int(float(cls_str)))
+        if rows_X:
+            X_parts.append(np.asarray(rows_X, dtype=np.dtype(spec.dtype)))
+            y_parts.append(np.asarray(rows_y, dtype=np.int64))
+    X = np.concatenate(X_parts, axis=0) if X_parts else np.empty((0, 0))
+    y = np.concatenate(y_parts, axis=0) if y_parts else None
+    warnings = [f"skipped {n_skipped} malformed/inconsistent row(s)"] if n_skipped else []
+    return X, y, {"n_files": len(paths), "n_features": n_features, "warnings": warnings}
+
+
+# ---------------------------------------------------------------------------
 # wav_dir — fixed-length raw PCM sample reader (stdlib `wave` only; no DSP
 # feature extraction — turning this into e.g. MFCCs is a booleanization-time
 # concern, out of scope for raw ingestion; an MFCC-style bit encoding is
@@ -304,4 +351,5 @@ READERS: dict[str, Reader] = {
     "idx": read_idx,
     "cifar_pickle": read_cifar_pickle,
     "wav_dir": read_wav_dir,
+    "libsvm": read_libsvm,
 }

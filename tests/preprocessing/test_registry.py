@@ -33,7 +33,7 @@ def test_list_datasets_returns_all_catalog_entries():
     assert names == sorted(names)
     assert set(names) == {
         "digits", "sports", "statlog", "gesture_phase", "human_activity",
-        "mammographic", "emg", "sensorless_drive", "mnist",
+        "mammographic", "emg", "sensorless_drive", "gas_sensor", "mnist",
     }
 
 
@@ -62,7 +62,7 @@ def test_get_dataset_and_defaults_matches_resolve_source_config_shape(tmp_path):
 
 @pytest.mark.parametrize("name,has_recipe", [
     ("digits", True), ("statlog", True), ("mammographic", True),
-    ("sensorless_drive", True), ("mnist", True),
+    ("sensorless_drive", True), ("mnist", True), ("gas_sensor", True),
     ("sports", False), ("gesture_phase", False), ("human_activity", False),
     ("emg", False),
 ])
@@ -78,7 +78,7 @@ def test_describe_dataset_mentions_recipe_availability():
 
 @pytest.mark.parametrize("name,expected_verified", [
     ("digits", True), ("statlog", True), ("mammographic", True),
-    ("sensorless_drive", True), ("mnist", True),
+    ("sensorless_drive", True), ("mnist", True), ("gas_sensor", True),
     ("sports", False), ("gesture_phase", False), ("human_activity", False),
     ("emg", False),
 ])
@@ -115,6 +115,7 @@ def test_get_recipe_for_inspection_raises_for_unknown_dataset():
 @pytest.mark.parametrize("name,n_features,expected_bits", [
     ("digits", 64, 512), ("statlog", 18, 288), ("mammographic", 5, 40),
     ("sensorless_drive", 48, 480), ("mnist", 784, 784),
+    ("gas_sensor", 128, 128),
 ])
 def test_default_recipe_produces_documented_bit_width(tmp_path, name, n_features, expected_bits):
     from matador.config.schema import BooleanisationConfig

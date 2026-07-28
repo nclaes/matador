@@ -63,7 +63,7 @@ class ExtractSpec(_Base):
 
 
 class ParseSpec(_Base):
-    reader: Literal["csv", "dir_of_csv", "dir_of_txt", "idx", "cifar_pickle", "wav_dir"]
+    reader: Literal["csv", "dir_of_csv", "dir_of_txt", "idx", "cifar_pickle", "wav_dir", "libsvm"]
     delimiter: str = ","                       # "whitespace" means "any run of whitespace"
     header: bool = False
     na_values: list[str] = Field(default_factory=list)

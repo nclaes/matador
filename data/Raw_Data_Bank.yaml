@@ -1,14 +1,5 @@
 # =============================================================================
 # raw_sources.yaml  --  raw-data source manifest for the MATADOR booleanised set
-#
-# Every dataset in data.zip is a BOOLEANISED derivative. This file points at the
-# ORIGINAL raw data and specifies enough to fetch + materialise it locally.
-#
-# Compiled 2026-07-25. Link status: every `homepage` and every `urls[].url`
-# below was checked against the live source page on that date. Nothing was
-# byte-downloaded while writing this file, so treat `md5` values as
-# "verify on first fetch" rather than gospel (see defaults.checksum_policy).
-#
 # -----------------------------------------------------------------------------
 # FIELD REFERENCE
 # -----------------------------------------------------------------------------
@@ -454,6 +445,51 @@ datasets:
       stratified 80/20 split reproduces the partition (row-for-row identity
       needs the original seed, which is not recorded).
       Dataset Dimensions.txt says 12 classes -- it is 11, labelled 1..11.
+
+  # ---------------------------------------------------------------------------
+  - key: gas_sensor
+    name: Gas Sensor Array Drift Dataset at Different Concentrations
+    enabled: true
+    status: {downloadable: "yes", direct_url: true, checked: 2026-07-28}
+    source:
+      kind: http_zip
+      homepage: https://archive.ics.uci.edu/dataset/270/gas+sensor+array+drift+dataset+at+different+concentrations
+      urls:
+        - url: https://archive.ics.uci.edu/static/public/270/gas+sensor+array+drift+dataset+at+different+concentrations.zip
+          filename: gas_sensor.zip
+          role: all
+      api: "from ucimlrepo import fetch_ucirepo; d = fetch_ucirepo(id=270)"
+    extract:
+      archive: zip
+      members: ["batch*.dat"]         # 10 files, batch1.dat..batch10.dat, flat at zip root
+    parse:
+      reader: libsvm                  # "<class>;<concentration> <idx>:<val> ... <idx>:<val>"
+      dtype: float32
+    split: {mode: random, test_size: 0.2, seed: 0, stratify: true}
+    expect: {n_rows: 13910, n_features_raw: 128, n_classes: 6}
+    export: {formats: [npz, csv], path: "{output_dir}/{key}"}   # csv auto-skipped if huge -- see ingest.py::_CSV_SIZE_THRESHOLD_MB
+    # 128 raw features -> 128 Boolean bits at 1 bit/feature (threshold encoder)
+    # matches this dataset's Features=128 in arXiv:2502.05640 Table 1 exactly.
+    booleanization:
+      default_encoder: {encoder: threshold, bits: 1, quantile: true}
+    license: CC BY 4.0
+    citation: "Vergara, A. (2012). Gas Sensor Array Drift Dataset at Different Concentrations. UCI ML Repository. doi:10.24432/C5MK6M"
+    notes: |
+      Each line is "<class>;<concentration> 1:v1 2:v2 ... 128:v128" -- a
+      libsvm-style sparse format, though always dense here (verified: every
+      one of the 13910 lines across all 10 batch files has exactly indices
+      1..128, no gaps). The concentration value (a per-instance experimental
+      condition, not a sensor reading) is parsed but intentionally dropped,
+      not treated as a 129th feature -- this matches num_features=128 in
+      UCI's own dataset metadata and Features=128 in arXiv:2502.05640 Table 1
+      (which cites this dataset's own intro paper, Rodriguez-Lujan et al.
+      2014, as its source). Classes are 1..6 (gas type: ethanol, ethylene,
+      ammonia, acetaldehyde, acetone, toluene); ingest.py's label
+      normalization shifts these to 0..5. The 10 batches represent different
+      time periods (Jan 2008-Feb 2011) with sensor drift between them --
+      this recipe pools all 10 into one random 80/20 split rather than using
+      the batches as a predefined train/test partition, since neither the
+      paper nor UCI's own page specifies a canonical split.
 
   # ---------------------------------------------------------------------------
   - key: mnist

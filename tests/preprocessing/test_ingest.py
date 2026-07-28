@@ -36,10 +36,10 @@ CATALOG_PATH = REPO_ROOT / "data" / "Raw_Data_Bank.yaml"
 def test_real_catalog_validates():
     raw = yaml.safe_load(CATALOG_PATH.read_text())
     catalog = RawDataCatalog.model_validate(raw)
-    assert len(catalog.datasets) == 9
+    assert len(catalog.datasets) == 10
     assert {d.key for d in catalog.datasets} == {
         "digits", "sports", "statlog", "gesture_phase", "human_activity",
-        "mammographic", "emg", "sensorless_drive", "mnist",
+        "mammographic", "emg", "sensorless_drive", "gas_sensor", "mnist",
     }
 
 
@@ -407,6 +407,44 @@ def test_ingest_wav_dir_spec_files_split(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Random split + libsvm reader (gas_sensor shape) — "<class>;<aux> idx:val ..."
+# ---------------------------------------------------------------------------
+
+def test_ingest_libsvm_drops_aux_value_and_skips_malformed_rows(tmp_path):
+    zip_path = tmp_path / "gas.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr(
+            "batch1.dat",
+            "\n".join([
+                "1;10.0 1:1.5 2:2.5 3:3.5",
+                "2;20.0 1:4.5 2:5.5 3:6.5",
+                "1;30.0 1:7.5 3:8.5",              # malformed: missing index 2 -> skipped
+            ]) + "\n",
+        )
+        zf.writestr(
+            "batch2.dat",
+            "\n".join([
+                "3;40.0 1:9.5 2:10.5 3:11.5",
+                "2;50.0 1:12.5 2:13.5 3:14.5",
+            ]) + "\n",
+        )
+
+    spec = RawDataSourceSpec.model_validate({
+        "key": "t9", "source": {"kind": "local", "path": str(zip_path)},
+        "extract": {"archive": "zip", "members": ["batch*.dat"]},
+        "parse": {"reader": "libsvm", "dtype": "float32"},
+        "split": {"mode": "random", "test_size": 0.2, "seed": 0},
+        "export": {"formats": ["npz"], "path": "{output_dir}/{key}"},
+    })
+    report = run_ingest(spec, tmp_path / "out")
+
+    assert report.x_train.shape[1] == report.x_test.shape[1] == 3   # concentration dropped, not a feature
+    assert report.x_train.shape[0] + report.x_test.shape[0] == 4    # 5 rows in, 1 malformed skipped
+    assert set(np.concatenate([report.y_train, report.y_test]).tolist()) <= {0, 1, 2}   # 1..3 -> 0-indexed
+    assert any("skipped" in w and "1" in w for w in report.warnings)
+
+
+# ---------------------------------------------------------------------------
 # Network-gated end-to-end correctness test against committed ground truth
 # ---------------------------------------------------------------------------
 
@@ -539,3 +577,18 @@ def test_ingest_gesture_phase_real_fetch_succeeds_with_all_classes(tmp_path):
     all_y = np.concatenate([report.y_train, report.y_test])
     assert set(all_y.tolist()) == {0, 1, 2, 3, 4}
     assert report.x_train.shape[0] + report.x_test.shape[0] == 1743
+
+
+@pytest.mark.skipif(
+    os.environ.get("MATADOR_NETWORK_TESTS") != "1",
+    reason="set MATADOR_NETWORK_TESTS=1 to run real-network ingestion tests",
+)
+def test_ingest_gas_sensor_real_fetch_matches_expected_shape(tmp_path):
+    catalog = RawDataCatalog.model_validate(yaml.safe_load(CATALOG_PATH.read_text()))
+    spec = catalog.get("gas_sensor")
+
+    report = run_ingest(spec, tmp_path / "out", defaults=catalog.defaults)
+
+    assert report.x_train.shape[1] == report.x_test.shape[1] == 128
+    assert report.x_train.shape[0] + report.x_test.shape[0] == 13910
+    assert set(np.concatenate([report.y_train, report.y_test]).tolist()) == set(range(6))
