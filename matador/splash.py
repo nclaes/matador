@@ -429,6 +429,7 @@ def _dm(state: dict) -> list[str]:
                 lines.append(f"  {dash} {bk:<16} {_DIM}not yet generated{_RESET}")
                 lines.append(f"    → {_CYAN}cp examples/{bk}.yaml /work/{bk}.yaml{_RESET}")
                 lines.append(f"    → {_CYAN}matador generate --backend {bk} --config /work/{bk}.yaml{_RESET}")
+            lines.append(f"    → walkthrough:  {_DIM}docs/walkthroughs/{bk}.md{_RESET}")
         if rtl_backends:
             lines.append(
                 f"  {_DIM}Emulate (software, no simulator needed):  "

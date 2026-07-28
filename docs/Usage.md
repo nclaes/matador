@@ -12,6 +12,12 @@ Looking at a `/work` full of files a command just produced and not sure what
 any of them are? [GeneratedOutputs.md](GeneratedOutputs.md) is a map of
 every file each stage below writes.
 
+Prefer a narrated, real-output worked example over a step reference? See
+[walkthroughs/vanilla_gp_tiled.md](walkthroughs/vanilla_gp_tiled.md) (two
+models, reprogramming, and handing a third to an RTL engineer),
+[walkthroughs/vanilla_hardwired.md](walkthroughs/vanilla_hardwired.md), or
+[walkthroughs/vanilla_tiled.md](walkthroughs/vanilla_tiled.md).
+
 ---
 
 ## Step 1 — Fetch/materialize raw data (optional)
@@ -277,7 +283,8 @@ RTL is written to `/work/<backend>/RTL/`. The generated `RTL/README.md` is
 the authoritative reference for that specific build; for a map of the
 `src/`/`tb/`/`sim/` layout and what's different about `vanilla_gp_tiled`'s
 output, see the `matador generate` section of
-[GeneratedOutputs.md](GeneratedOutputs.md).
+[GeneratedOutputs.md](GeneratedOutputs.md). For a full narrated run with real
+commands and output, see the [walkthroughs](walkthroughs/) — one per backend.
 
 ---
 
@@ -343,6 +350,10 @@ matador export-model-json --backend vanilla_gp_tiled \
 Then they run `python3 gen_vectors.py combined <model_name>.json ...` from
 `sim/` with no matador install needed at all — see the generated
 `RTL/README.md` § 3 for the exact commands.
+
+For a full narrated run of this entire step (real datasets, real accuracy
+numbers, real simulator output) see
+[walkthroughs/vanilla_gp_tiled.md](walkthroughs/vanilla_gp_tiled.md).
 
 ---
 
