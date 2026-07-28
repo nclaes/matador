@@ -4,6 +4,7 @@ consumes unchanged)."""
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -83,6 +84,28 @@ def _make_raw_npz(tmp_path: Path, **arrays) -> Path:
     p = tmp_path / "raw.npz"
     np.savez(p, **arrays)
     return p
+
+
+def test_booleanize_report_includes_n_classes(tmp_path):
+    """n_classes is threaded through BooleanizeReport (and the written
+    <name>_report.json) so callers -- e.g. the CLI's post-booleanize
+    guidance telling a user what to set training_config.yaml's `classes:`
+    field to -- don't have to recompute it themselves."""
+    x_train = np.zeros((6, 2))
+    x_test = np.zeros((2, 2))
+    y_train = np.array([0, 1, 2, 0, 1, 2])
+    y_test = np.array([1, 2])
+    npz = _make_raw_npz(tmp_path, x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
+
+    cfg = BooleanisationConfig(
+        raw_npz=npz, name="synth", output_dir=tmp_path / "out",
+        default_encoder=FeatureEncoderSpec(encoder="thermometer", bits=4, quantile=True),
+    )
+    report = run_booleanize(cfg)
+
+    assert report.n_classes == 3
+    report_json = json.loads(report.output_paths["report"].read_text())
+    assert report_json["n_classes"] == 3
 
 
 def test_booleanize_writes_train_data_compatible_format(tmp_path):

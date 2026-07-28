@@ -184,6 +184,111 @@ def test_cli_booleanize_dataset_missing_raw_npz_tells_user_to_ingest_first(tmp_p
     assert "matador ingest --dataset digits" in result.output
 
 
+def _do_booleanize(tmp_path, out_subdir="bool"):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir(exist_ok=True)
+    x_train = np.random.default_rng(0).integers(0, 17, size=(10, 5)).astype(float)
+    x_test = np.random.default_rng(1).integers(0, 17, size=(4, 5)).astype(float)
+    y_train, y_test = np.array([0] * 10), np.array([1] * 4)
+    np.savez(raw_dir / "digits.npz", x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
+    return CliRunner().invoke(main, [
+        "booleanize", "--dataset", "digits", "--raw-dir", str(raw_dir), "--output-dir", str(tmp_path / out_subdir),
+    ])
+
+
+def test_cli_booleanize_tells_user_to_create_training_config_when_missing(tmp_path, monkeypatch):
+    """Regression: matador booleanize's own success message used to always
+    say "point training_config.yaml at these files" and jump straight to
+    `matador train --config /work/training_config.yaml`, silently assuming
+    that file already existed -- a first-time user running ingest ->
+    booleanize has no training_config.yaml yet, and was never told to
+    `cp examples/training_config.yaml` first."""
+    import matador.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_DEFAULT_CONFIG", tmp_path / "training_config.yaml")
+
+    result = _do_booleanize(tmp_path)
+    assert result.exit_code == 0
+    assert "cp examples/training_config.yaml" in result.output
+    assert str(tmp_path / "training_config.yaml") in result.output
+
+
+def test_cli_booleanize_skips_cp_hint_when_training_config_already_targets_this_dataset(tmp_path, monkeypatch):
+    """Re-booleanizing a dataset whose training_config.yaml already points
+    train_data at it (e.g. re-running after an upstream data fix) should
+    offer to reuse that same config, not suggest a fresh copy."""
+    import matador.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_DEFAULT_CONFIG", tmp_path / "training_config.yaml")
+    (tmp_path / "training_config.yaml").write_text(
+        f"tm_type: vanilla\ntrain_data: {tmp_path / 'bool' / 'digits_train.txt'}\n"
+    )
+
+    result = _do_booleanize(tmp_path)
+    assert result.exit_code == 0
+    assert "cp examples/training_config.yaml" not in result.output
+    assert f"matador train --config {tmp_path / 'training_config.yaml'}" in result.output
+
+
+def test_cli_booleanize_respects_explicit_model_name_override_not_just_train_data(tmp_path, monkeypatch):
+    """A training_config.yaml with an explicit model_name: (e.g. a
+    differently-sized second model trained from the SAME dataset) must be
+    recognized by its model_name, not misread as targeting the plain
+    dataset name just because train_data happens to point at the same
+    <name>_train.txt -- otherwise a second, differently-configured model for
+    the same dataset would look identical to the first and get its config
+    silently suggested for reuse/overwrite."""
+    import matador.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_DEFAULT_CONFIG", tmp_path / "training_config.yaml")
+    (tmp_path / "training_config.yaml").write_text(
+        f"tm_type: vanilla\nmodel_name: digits_large\n"
+        f"train_data: {tmp_path / 'bool' / 'digits_train.txt'}\nclauses: 2000\n"
+    )
+
+    result = _do_booleanize(tmp_path)   # booleanizes "digits" again
+    assert result.exit_code == 0
+    assert "already trains digits_large" in result.output
+    assert f"cp examples/training_config.yaml {tmp_path / 'digits_training_config.yaml'}" in result.output
+
+
+def test_cli_booleanize_suggests_separate_config_for_a_different_dataset(tmp_path, monkeypatch):
+    """Regression: booleanizing a second dataset while training_config.yaml
+    already exists (and already targets a DIFFERENT model) used to say
+    "edit training_config.yaml" unconditionally -- silently inviting the
+    user to repurpose/overwrite a config that already belongs to another
+    model. It must instead suggest a separate, non-colliding filename."""
+    import matador.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_DEFAULT_CONFIG", tmp_path / "training_config.yaml")
+    (tmp_path / "training_config.yaml").write_text(
+        "tm_type: vanilla\ntrain_data: /work/booleanised/sports_train.txt\n"
+    )
+
+    result = _do_booleanize(tmp_path)   # _do_booleanize always booleanizes "digits"
+    assert result.exit_code == 0
+    assert "already trains sports" in result.output
+    assert f"cp examples/training_config.yaml {tmp_path / 'digits_training_config.yaml'}" in result.output
+    assert f"matador train --config {tmp_path / 'digits_training_config.yaml'}" in result.output
+    # must NOT silently tell the user to overwrite the existing one
+    assert f"Edit {tmp_path / 'training_config.yaml'} and set" not in result.output
+
+
+def test_cli_booleanize_tells_user_the_actual_class_count_and_to_review_hyperparameters(tmp_path, monkeypatch):
+    """The guidance must give the real, computed class count (not leave the
+    user to work it out themselves) and make clear that copying the
+    template isn't enough on its own -- the other hyperparameters still
+    need reviewing for this dataset."""
+    import matador.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_DEFAULT_CONFIG", tmp_path / "training_config.yaml")
+
+    result = _do_booleanize(tmp_path)   # digits fixture: y_train=[0]*10, y_test=[1]*4 -> 2 classes
+    assert result.exit_code == 0
+    assert "classes:    2" in result.output
+    assert "review the remaining hyperparameters" in result.output.lower()
+
+
 # ---------------------------------------------------------------------------
 # Network-gated end-to-end: --dataset reaches the same real code paths as
 # the --config form already verified in test_ingest.py / test_booleanize.py

@@ -24,41 +24,56 @@ def _find_newest(pattern: str) -> Path | None:
     return matches[0] if matches else None
 
 
-def _find_training_config() -> Path | None:
-    """Return the training config file if one exists, regardless of filename.
+def _find_training_configs() -> list[Path]:
+    """Return every training config found in /work root, regardless of
+    filename -- the common canonical name(s), plus any other YAML containing
+    the 'tm_type' field (unique to training configs). A workspace can
+    legitimately hold several, one per model being trained (e.g.
+    training_config.yaml + sports_training_config.yaml) -- matches matador
+    train's own per-model TMIR/<model_name>/ output namespacing, rather than
+    assuming there's only ever one config in play."""
+    found: dict[str, Path] = {}
 
-    Checks common names first, then falls back to any YAML in /work/ root
-    that contains the 'tm_type' field (unique to training configs).
-    """
     # Common explicit names
     for name in ("training_config.yaml", "training_config.yml",
                  "training.yaml", "training.yml"):
         p = _WORK / name
         if p.exists():
-            return p
+            found[p.name] = p
 
-    # Last resort: scan for any root-level YAML with a tm_type key
+    # Any other root-level YAML with a tm_type key
     for p in _WORK.glob("*.yaml"):
+        if p.name in found:
+            continue
         try:
             if "tm_type" in p.read_text():
-                return p
+                found[p.name] = p
         except Exception:
             pass
 
-    return None
+    return sorted(found.values(), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def _training_config_target(cfg_path: "Path | None") -> "str | None":
-    """The model_name the training config's train_data currently points at,
-    via the same suffix-stripping convention matador.models.trainer uses to
-    derive model_name from train_data -- lets the dashboard tell whether an
-    existing training_config.yaml is already aimed at a specific booleanized
-    dataset/model, rather than just "a config exists somewhere"."""
+    """The model_name a training config actually trains -- an explicit
+    model_name: if set, else derived from train_data's filename. Mirrors
+    matador.models.trainer.export_tmir()'s own precedence EXACTLY
+    (`config.model_name or _derive_model_name(config.train_data)`) so the
+    dashboard/CLI guidance agree with what a real `matador train` run would
+    actually name the output as. This is what makes two differently-sized
+    models trained from the SAME dataset distinguishable: with an explicit
+    model_name: (e.g. digits_large vs. plain digits), each config's target
+    is its own model_name, not the shared dataset name -- ignoring
+    model_name: here would make both configs look like "the" config for
+    "digits" and the dashboard couldn't tell them apart."""
     if not cfg_path:
         return None
     try:
         import yaml as _yaml
         data = _yaml.safe_load(cfg_path.read_text()) or {}
+        explicit = data.get("model_name")
+        if explicit:
+            return explicit
         train_data = data.get("train_data")
         if not train_data:
             return None
@@ -142,7 +157,7 @@ def _workspace_state() -> dict:
         _WORK.glob("**/*_report.json"), key=lambda p: p.stat().st_mtime, reverse=True,
     )
 
-    state["training_config"] = _find_training_config()
+    state["training_configs"] = _find_training_configs()
 
     # Every discovered model, not just the newest -- see _discover_models().
     state["tmir_models"] = _discover_models()
@@ -211,8 +226,17 @@ def _dm(state: dict) -> list[str]:
     rtl_backends = state.get("rtl_backends", [])
     has_ds_cfg   = bool(state.get("data_source_config"))
     has_bool_cfg = bool(state.get("booleanisation_config"))
-    has_cfg  = bool(state.get("training_config"))
-    cfg = state.get("training_config")
+    training_configs = state.get("training_configs", [])
+    has_cfg = bool(training_configs)
+    # Which dataset/model each existing training config's train_data already
+    # points at, so guidance can offer an existing config to reuse or -- if
+    # every existing one already belongs to a different model -- suggest a
+    # new, non-colliding filename instead of overwriting one in use.
+    target_to_cfg: dict[str, Path] = {}
+    for c in training_configs:
+        t = _training_config_target(c)
+        if t and t not in target_to_cfg:
+            target_to_cfg[t] = c
 
     # Pre-made Boolean datasets — already-committed train/test files (e.g.
     # from data.zip) for a registered catalog entry, requiring no `matador
@@ -317,14 +341,26 @@ def _dm(state: dict) -> list[str]:
             done = name in model_names
             lines.append(f"  {tick if done else dash} {name:<16} {_DIM}{p.parent}{_RESET}")
             if not done:
-                if has_cfg:
-                    lines.append(f"    → {_CYAN}matador train --config {cfg}{_RESET}")
-                    lines.append(f"    {_DIM}  (make sure train_data/test_data point at {train_txt.name}/{test_txt.name} above){_RESET}")
+                existing = target_to_cfg.get(name)
+                if existing:
+                    lines.append(f"    → {_CYAN}matador train --config {existing}{_RESET}")
                 else:
-                    lines.append(f"    → {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}")
+                    # No config points at this dataset yet. If other configs
+                    # already exist (for other models), suggest a
+                    # non-colliding name (matching matador booleanize's own
+                    # <name>_train.txt/<name>_report.json convention) rather
+                    # than one that would silently repurpose someone else's
+                    # in-progress config. If you want a SECOND, differently
+                    # sized model from this same dataset later, give it its
+                    # own explicit model_name: and name its config to match
+                    # (<model_name>_training_config.yaml) -- see
+                    # examples/training_config.yaml.
+                    suggested = _WORK / "training_config.yaml" if not training_configs \
+                        else _WORK / f"{name}_training_config.yaml"
+                    lines.append(f"    → {_CYAN}cp examples/training_config.yaml {suggested}{_RESET}")
                     lines.append(f"    {_DIM}  set train_data: {train_txt}{_RESET}")
                     lines.append(f"    {_DIM}  set test_data:  {test_txt}{_RESET}")
-                    lines.append(f"    → {_CYAN}matador train --config /work/training_config.yaml{_RESET}")
+                    lines.append(f"    → {_CYAN}matador train --config {suggested}{_RESET}")
     elif has_bool_cfg:
         lines.append(f"  {dash} configured, not yet run  {_DIM}{state['booleanisation_config']}{_RESET}")
         lines.append(f"    → {_CYAN}matador booleanize --config {state['booleanisation_config']}{_RESET}")
@@ -332,20 +368,24 @@ def _dm(state: dict) -> list[str]:
         lines.append(f"  {dash} none yet")
     lines.append("")
 
-    # ── Training config (a single shared file — covers users who bring
-    #     their own Boolean data with no matador-booleanize report.json at
-    #     all, which the per-dataset view above can't see) ───────────────────
+    # ── Training config(s) -- a workspace can hold several, one per model
+    #     (matches matador train's own per-model TMIR/<model_name>/ output
+    #     namespacing). Also covers users who bring their own Boolean data
+    #     with no matador-booleanize report.json at all, which the
+    #     per-dataset Boolean-data view above can't see. ─────────────────────
     lines.append(f"  {_BOLD}Training config{_RESET}")
-    if has_cfg:
-        lines.append(f"  {tick} {_DIM}{cfg}{_RESET}")
-        target = _training_config_target(cfg)
-        # Only prompt here if its target isn't already covered by a
-        # Boolean-data action above (or already trained) -- otherwise this
-        # would just repeat the same "matador train" line twice.
-        if target not in boolean_names and target not in model_names:
-            lines.append(f"    → {_CYAN}matador train --config {cfg}{_RESET}")
+    if training_configs:
+        for c in training_configs:
+            target = _training_config_target(c)
+            suffix = f"  {_DIM}(targets: {target}){_RESET}" if target else ""
+            lines.append(f"  {tick} {_DIM}{c}{_RESET}{suffix}")
+            # Only prompt here if its target isn't already covered by a
+            # Boolean-data action above (or already trained) -- otherwise
+            # this would just repeat the same "matador train" line twice.
+            if target not in boolean_names and target not in model_names:
+                lines.append(f"    → {_CYAN}matador train --config {c}{_RESET}")
     else:
-        lines.append(f"  {dash} not found")
+        lines.append(f"  {dash} none yet")
         lines.append(f"    {_DIM}(needed if you have your own Boolean (0/1) data, not produced via matador booleanize){_RESET}")
         lines.append(f"    → {_CYAN}cp examples/training_config.yaml /work/training_config.yaml{_RESET}")
     lines.append("")

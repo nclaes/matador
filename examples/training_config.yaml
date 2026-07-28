@@ -3,6 +3,27 @@
 # Place this file in your work directory (mounted as /work inside the container).
 # Run: matador train --config /work/training_config.yaml
 #
+# Training multiple models in the same /work? Each model needs its OWN copy
+# of this file (matador train --config accepts any path/filename). Name it
+# after the model: <model_name>_training_config.yaml (matching matador
+# booleanize's own <name>_train.txt/<name>_report.json convention) --
+# e.g. training_config.yaml (or digits_training_config.yaml) for the first
+# model, sports_training_config.yaml for a second one on a different
+# dataset. Only the OUTPUT is auto-namespaced per model_name (see below);
+# the config file itself is not, so reusing one file across models means
+# re-editing train_data/test_data (and losing track of the previous
+# model's settings) every time you switch. `matador`/`matador status` list
+# every training config actually present in /work and what model_name each
+# one targets.
+#
+# Training multiple DIFFERENTLY SIZED models from the SAME dataset (e.g. a
+# small and a large digits model)? train_data alone can't tell them apart
+# -- set model_name: explicitly and differently in each one (see below),
+# and name the file to match, e.g. digits_small_training_config.yaml /
+# digits_large_training_config.yaml. Without an explicit model_name:, both
+# would default to the same name derived from train_data and the second
+# `matador train` run would silently overwrite the first model's output.
+#
 # DATA REQUIREMENT: All feature values must already be Boolean (0 or 1).
 # Files must be space-separated with the class label as the final column.
 # Example row (4 features, class 2): 1 0 1 1 2
@@ -44,6 +65,9 @@ test_data: /work/data/test.txt
 # derived from train_data's filename (e.g. digits_train.txt -> "digits") --
 # matching `matador booleanize`'s own <name>_train.txt convention, so the
 # ingest -> booleanize -> train chain needs no extra configuration here.
+# REQUIRED (and must be distinct) if you're training more than one model
+# from the SAME dataset (e.g. different hyperparameters/sizes) -- without
+# it, both configs derive the same name from train_data and collide.
 # model_name: my_model
 
 # Directory where trained TA state files and logs will be written

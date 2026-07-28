@@ -137,6 +137,22 @@ straight into `train_data`/`test_data` below.
 cp examples/training_config.yaml /work/training_config.yaml
 ```
 
+Training more than one model in this `/work`? Give each its own config file
+instead, named after the model (matching `matador booleanize`'s own
+`<name>_train.txt` convention) — e.g. `sports_training_config.yaml` for a
+second model on a different dataset. `matador train --config` accepts any
+path, and `matador booleanize`'s own "next step" guidance already suggests
+a non-colliding name automatically once it sees another training config
+already targets a different dataset.
+
+**Training more than one model from the *same* dataset** (e.g. a small and
+a large variant)? `train_data` alone can't tell them apart — set
+`model_name:` explicitly and differently in each one (see below), and name
+the files to match: `digits_small_training_config.yaml` /
+`digits_large_training_config.yaml`. Without distinct `model_name:`
+values, both configs derive the same name from `train_data` and the second
+`matador train` run silently overwrites the first model's output.
+
 Edit `/work/training_config.yaml`:
 
 ```yaml
@@ -166,12 +182,21 @@ matador train --config /work/training_config.yaml
 ```
 
 Outputs under `/work/TMIR/<model_name>/` — **namespaced per model**, so
-training several models (different datasets, or just different
-hyperparameters) into the same `/work` never overwrites an earlier one.
-`model_name` defaults to `train_data`'s filename stem (`digits_train.txt` →
-`digits` — matches `matador booleanize`'s own naming, so the
-`ingest`/`booleanize`/`train` chain needs no extra configuration); set
-`model_name:` explicitly in `training_config.yaml` to override it.
+training several models into the same `/work` never overwrites an earlier
+one. `model_name` defaults to `train_data`'s filename stem (`digits_train.txt`
+→ `digits` — matches `matador booleanize`'s own naming, so the
+`ingest`/`booleanize`/`train` chain needs no extra configuration for the
+common case: one model per dataset). Training a *second, differently
+configured* model from the **same** dataset needs an explicit, distinct
+`model_name:` in that config — the default derives purely from `train_data`'s
+filename, not from `clauses`/`s`/`T`/etc., so two configs pointed at the same
+`train_data` collide on the same output directory unless you set
+`model_name:` explicitly in `training_config.yaml` to override it. Note
+that only the *output* is auto-namespaced this way — the config file itself
+is not, so training a second model means creating a second config file
+(Step 3), not re-editing the first one. `matador`/`matador status` list
+every training config actually present in `/work` and which model_name each
+one currently targets.
 
 - `TM_TMIR_Clauses_<N>_...yaml` + `.npz` — trained model (TMIR format)
 - `validation_config.yaml` — ready for `matador validate`

@@ -294,6 +294,126 @@ def test_dm_training_config_prompts_standalone_for_externally_provided_data(tmp_
     assert "matador train --config" in cfg_section
 
 
+def test_workspace_state_lists_every_training_config_not_just_one(tmp_path, monkeypatch):
+    """A workspace can legitimately hold several training configs, one per
+    model being trained -- matches matador train's own per-model
+    TMIR/<model_name>/ output namespacing. Used to report only a single
+    config regardless of how many actually existed."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "training_config.yaml").write_text("tm_type: vanilla\ntrain_data: digits_train.txt\n")
+    (tmp_path / "sports_training_config.yaml").write_text("tm_type: vanilla\ntrain_data: sports_train.txt\n")
+    monkeypatch.setattr(splash, "_WORK", tmp_path)
+
+    state = splash._workspace_state()
+
+    names = {p.name for p in state["training_configs"]}
+    assert names == {"training_config.yaml", "sports_training_config.yaml"}
+
+
+def test_dm_boolean_dataset_suggests_non_colliding_config_when_another_already_exists(tmp_path, monkeypatch):
+    """Regression: a second Boolean dataset with no training config of its
+    own yet used to always be told to cp to the same canonical
+    training_config.yaml as any other dataset -- silently inviting the user
+    to overwrite whichever model's config was already there. It must
+    instead suggest a dataset-specific filename once another config exists."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "training_config.yaml").write_text(
+        f"tm_type: vanilla\ntrain_data: {tmp_path / 'digits_train.txt'}\n"
+    )
+    out = tmp_path / "booleanised"
+    out.mkdir()
+    (out / "sports_report.json").write_text("{}")
+    monkeypatch.setattr(splash, "_WORK", tmp_path)
+    state = splash._workspace_state()
+
+    lines = "\n".join(splash._dm(state))
+
+    bool_section = lines.split("Boolean data")[1].split("Training config")[0]
+    assert f"cp examples/training_config.yaml {tmp_path / 'sports_training_config.yaml'}" in bool_section
+    assert f"matador train --config {tmp_path / 'sports_training_config.yaml'}" in bool_section
+    # must not suggest reusing/overwriting the existing (digits) config
+    assert f"matador train --config {tmp_path / 'training_config.yaml'}" not in bool_section
+
+
+def test_dm_boolean_dataset_reuses_existing_config_that_already_targets_it(tmp_path, monkeypatch):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    out = tmp_path / "booleanised"
+    out.mkdir()
+    (out / "digits_report.json").write_text("{}")
+    (tmp_path / "digits_training_config.yaml").write_text(
+        f"tm_type: vanilla\ntrain_data: {out / 'digits_train.txt'}\n"
+    )
+    monkeypatch.setattr(splash, "_WORK", tmp_path)
+    state = splash._workspace_state()
+
+    lines = "\n".join(splash._dm(state))
+
+    bool_section = lines.split("Boolean data")[1].split("Training config")[0]
+    assert f"matador train --config {tmp_path / 'digits_training_config.yaml'}" in bool_section
+    assert "cp examples/training_config.yaml" not in bool_section
+
+
+def test_dm_lists_each_training_config_with_its_target(tmp_path, monkeypatch):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "training_config.yaml").write_text(
+        f"tm_type: vanilla\ntrain_data: {tmp_path / 'digits_train.txt'}\n"
+    )
+    (tmp_path / "sports_training_config.yaml").write_text(
+        f"tm_type: vanilla\ntrain_data: {tmp_path / 'sports_train.txt'}\n"
+    )
+    monkeypatch.setattr(splash, "_WORK", tmp_path)
+    state = splash._workspace_state()
+
+    lines = "\n".join(splash._dm(state))
+
+    cfg_section = lines.split("Training config")[1].split("Trained models")[0]
+    assert "training_config.yaml" in cfg_section
+    assert "sports_training_config.yaml" in cfg_section
+    assert "targets: digits" in cfg_section
+    assert "targets: sports" in cfg_section
+
+
+def test_dm_two_same_dataset_models_with_distinct_model_name_are_tracked_separately(tmp_path, monkeypatch):
+    """The actual scenario this whole naming/target-matching exists for:
+    two DIFFERENTLY SIZED models trained from the SAME dataset. Each config
+    sets its own explicit model_name:, so _training_config_target must
+    return that override, not the shared dataset name derived from
+    train_data -- otherwise both configs would look like "the" config for
+    "digits" and the dashboard couldn't tell a small model already exists
+    from a large one still pending."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    out = tmp_path / "booleanised"
+    out.mkdir()
+    (out / "digits_report.json").write_text("{}")
+
+    (tmp_path / "digits_small_training_config.yaml").write_text(
+        f"tm_type: vanilla\nmodel_name: digits_small\ntrain_data: {out / 'digits_train.txt'}\nclauses: 100\n"
+    )
+    (tmp_path / "digits_large_training_config.yaml").write_text(
+        f"tm_type: vanilla\nmodel_name: digits_large\ntrain_data: {out / 'digits_train.txt'}\nclauses: 2000\n"
+    )
+
+    # digits_small has already been trained; digits_large hasn't.
+    model_dir = tmp_path / "TMIR" / "digits_small"
+    model_dir.mkdir(parents=True)
+    (model_dir / "TM_TMIR_test.yaml").write_text("placeholder")
+
+    monkeypatch.setattr(splash, "_WORK", tmp_path)
+    state = splash._workspace_state()
+
+    assert splash._training_config_target(tmp_path / "digits_small_training_config.yaml") == "digits_small"
+    assert splash._training_config_target(tmp_path / "digits_large_training_config.yaml") == "digits_large"
+
+    lines = "\n".join(splash._dm(state))
+    cfg_section = lines.split("Training config")[1].split("Trained models")[0]
+    assert "targets: digits_small" in cfg_section
+    assert "targets: digits_large" in cfg_section
+    # digits_large hasn't been trained yet -- must still get a train prompt
+    assert f"matador train --config {tmp_path / 'digits_large_training_config.yaml'}" in cfg_section
+    # digits_small has -- must NOT get a redundant train prompt
+    assert f"matador train --config {tmp_path / 'digits_small_training_config.yaml'}" not in cfg_section
+
+
 def test_dm_suggests_reprogram_suite_only_for_reprogrammable_backend_with_rtl(tmp_path, monkeypatch):
     work = _make_workspace(tmp_path, rtl_backend="vanilla_gp_tiled")
     monkeypatch.setattr(splash, "_WORK", work)

@@ -26,6 +26,7 @@ class BooleanizeReport:
     n_test: int
     n_features_raw: int
     n_features_bool: int
+    n_classes: int
     per_column: list[dict] = field(default_factory=list)
     output_paths: dict[str, Path] = field(default_factory=dict)
 
@@ -117,6 +118,7 @@ def run_booleanize(config: "BooleanisationConfig") -> BooleanizeReport:
         "n_test": int(X_test_bool.shape[0]),
         "n_features_raw": n_columns,
         "n_features_bool": int(X_train_bool.shape[1]),
+        "n_classes": int(len(classes)),
         "per_column": per_column,
         "class_distribution": {int(k): int(v) for k, v in zip(classes, counts)},
     }
@@ -128,6 +130,7 @@ def run_booleanize(config: "BooleanisationConfig") -> BooleanizeReport:
         n_test=int(X_test_bool.shape[0]),
         n_features_raw=n_columns,
         n_features_bool=int(X_train_bool.shape[1]),
+        n_classes=int(len(classes)),
         per_column=per_column,
         output_paths={"train": train_path, "test": test_path, "report": report_path},
     )

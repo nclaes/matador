@@ -422,11 +422,38 @@ def booleanize(
     for name, path in report.output_paths.items():
         click.echo(f"  {name}: {path}")
     click.echo("")
-    click.echo("Next step — point training_config.yaml at these files:")
+    from matador.splash import _training_config_target
+    existing_target = _training_config_target(_DEFAULT_CONFIG) if _DEFAULT_CONFIG.exists() else None
+
+    if existing_target == config.name:
+        # Same dataset re-booleanized -- the existing config already trains
+        # (or is meant to train) this one, safe to keep pointing at it.
+        target_cfg = _DEFAULT_CONFIG
+        click.echo(f"Next step — edit {target_cfg} and set:")
+    elif _DEFAULT_CONFIG.exists():
+        # _DEFAULT_CONFIG already trains a DIFFERENT model -- don't suggest
+        # silently repurposing it. A workspace can hold several training
+        # configs, one per model, matching matador train's own per-model
+        # TMIR/<model_name>/ output namespacing.
+        target_cfg = _DEFAULT_CONFIG.parent / f"{config.name}_training_config.yaml"
+        click.echo(f"Next step — {_DEFAULT_CONFIG} already trains {existing_target or 'a different model'};")
+        click.echo(f"copy a separate config for this one:")
+        click.echo(f"  cp examples/training_config.yaml {target_cfg}")
+        click.echo(f"Edit {target_cfg} and set:")
+    else:
+        target_cfg = _DEFAULT_CONFIG
+        click.echo("Next step — copy a training config template, then fill it out:")
+        click.echo(f"  cp examples/training_config.yaml {target_cfg}")
+        click.echo(f"Edit {target_cfg} and set:")
     click.echo(f"  train_data: {report.output_paths['train']}")
-    click.echo(f"  test_data: {report.output_paths['test']}")
-    click.echo(f"  features: {report.n_features_bool}")
-    click.echo("  matador train --config /work/training_config.yaml")
+    click.echo(f"  test_data:  {report.output_paths['test']}")
+    click.echo(f"  features:   {report.n_features_bool}")
+    click.echo(f"  classes:    {report.n_classes}")
+    click.echo("Also review the remaining hyperparameters (clauses, s, T, epochs,")
+    click.echo("max_included_literals, seed) — the copied defaults are a starting point,")
+    click.echo("not tuned for this dataset.")
+    click.echo("")
+    click.echo(f"  matador train --config {target_cfg}")
 
 
 @main.command("train")
