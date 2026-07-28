@@ -3,7 +3,7 @@
 All commands run **inside the container** (`make shell WORK_DIR=/path/to/your/data`).
 
 Already have Boolean (0/1) training/test data files? Skip straight to
-[Step 3 — Prepare training config](#step-3--prepare-training-config). Starting
+[Step 3 — Prepare training config](#step-3-prepare-training-config). Starting
 from raw or external data instead? Steps 1–2 below get you there.
 `matador faena` walks through this interactively and skips whichever steps
 you say you don't need.

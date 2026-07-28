@@ -30,6 +30,9 @@ dev = [
     "pre-commit",
     "mypy",
 ]
+docs = [
+    "mkdocs-material",
+]
 
 [project.scripts]
 matador = "matador.cli:main"
