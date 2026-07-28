@@ -81,3 +81,16 @@ tmu/tmulib*.c
 accel_config.json
 .python-version
 matador/templates/
+
+# =============================================================================
+# Raw dataset archives — `matador ingest` fetches these from Raw_Data_Bank.yaml's
+# URLs at runtime; do not commit local copies. Exceptions: the catalog itself,
+# and data/Digits/*.txt, which tests/preprocessing/{test_ingest,test_booleanize}.py
+# read as committed ground truth (network-gated, MATADOR_NETWORK_TESTS=1).
+# =============================================================================
+data/*
+!data/Raw_Data_Bank.yaml
+!data/Dataset Dimensions.txt
+!data/Digits
+!data/Digits/*
+data.zip
