@@ -8,6 +8,10 @@ from raw or external data instead? Steps 1–2 below get you there.
 `matador faena` walks through this interactively and skips whichever steps
 you say you don't need.
 
+Looking at a `/work` full of files a command just produced and not sure what
+any of them are? [GeneratedOutputs.md](GeneratedOutputs.md) is a map of
+every file each stage below writes.
+
 ---
 
 ## Step 1 — Fetch/materialize raw data (optional)
@@ -202,6 +206,9 @@ one currently targets.
 - `validation_config.yaml` — ready for `matador validate`
 - `rom_inference.py` — standalone provenance script (numpy-only)
 
+Full file-by-file breakdown (including `ta_actions.npy`/`model_metadata.json`,
+not shown above): see the `matador train` section of [GeneratedOutputs.md](GeneratedOutputs.md).
+
 ---
 
 ## Step 5 — Validate model accuracy (optional)
@@ -266,7 +273,11 @@ max_clauses_total:  256
 max_classes:        32
 ```
 
-RTL is written to `/work/<backend>/RTL/`.
+RTL is written to `/work/<backend>/RTL/`. The generated `RTL/README.md` is
+the authoritative reference for that specific build; for a map of the
+`src/`/`tb/`/`sim/` layout and what's different about `vanilla_gp_tiled`'s
+output, see the `matador generate` section of
+[GeneratedOutputs.md](GeneratedOutputs.md).
 
 ---
 

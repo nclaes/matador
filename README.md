@@ -42,6 +42,7 @@ matador clean --dry-run      # preview a full workspace reset (nothing removed w
 |---|---|
 | [docs/Setup.md](docs/Setup.md) | Docker setup, building the container, first run |
 | [docs/Usage.md](docs/Usage.md) | Full ingest → booleanize → train → generate → simulate workflow with YAML examples |
+| [docs/GeneratedOutputs.md](docs/GeneratedOutputs.md) | A map of `/work` — what every command writes, what each file is for, what's safe to delete |
 | [docs/Developer.md](docs/Developer.md) | Extending Matador — adding a new dataset, booleanisation technique, or accelerator backend |
 
 ---
