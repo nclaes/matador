@@ -41,6 +41,7 @@ generate() writes:
 from __future__ import annotations
 
 import json
+import math
 import re
 import textwrap
 from pathlib import Path
@@ -469,6 +470,16 @@ class GPTiledBackend(RTLBackend):
         tile_width = config.clause_slice * 2 * config.feat_slice
         n_tiles_max = config.n_tiles_max
         words_per_tile = tile_width // config.axis_data_width
+        # score_width is sized to the TRUE worst-case vote magnitude any
+        # model within this backend's compile-time capacity could ever
+        # produce: a single class holding half of max_clauses_total
+        # clauses, all one polarity, all firing (e.g. n_classes=1,
+        # clauses_per_class=max_clauses_total). score_acc_rt.v no longer
+        # clamps (see its own header comment), so the register must never
+        # overflow regardless of what threshold a loaded model happens to
+        # carry. Mirrors vanilla_tiled's TMAccelerator.score_width sizing.
+        max_half_clauses = config.max_clauses_total // 2
+        score_width = max(4, _clog2(max_half_clauses + 1) + 2)
         return [
             ("MAX_CLASSES", config.max_classes),
             ("MAX_CLAUSES_TOTAL", config.max_clauses_total),
@@ -482,6 +493,7 @@ class GPTiledBackend(RTLBackend):
             ("TILE_AW", _clog2(n_tiles_max)),
             ("WORD_CNT_W", _clog2(words_per_tile)),
             ("AXIS_DATA_WIDTH", config.axis_data_width),
+            ("SCORE_WIDTH", score_width),
             ("CLASS_WIDTH", _clog2(config.max_classes)),
             ("FIFO_DEPTH", config.fifo_depth),
         ]
@@ -1129,6 +1141,6 @@ class GPTiledBackend(RTLBackend):
               n_features           = {model.n_features}
               n_classes            = {model.n_classes}
               clauses_per_class    = {model.clauses_per_class}
-              threshold            = {model.threshold}
+              threshold            = {model.threshold}  (vestigial -- scores are unclamped, see score_acc_rt.v)
               n_tiles              = {model.n_tiles}
             """)

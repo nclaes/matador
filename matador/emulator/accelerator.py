@@ -127,7 +127,6 @@ class TMAcceleratorEmulator:
         )
         score_acc = ScoreAccEmulator(
             n_classes=self.n_classes,
-            threshold=self.threshold,
             cycle_ref=cycle_ref,
         )
         clause_eval = ClauseEvalEmulator()

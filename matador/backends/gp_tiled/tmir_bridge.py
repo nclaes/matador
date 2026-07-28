@@ -34,20 +34,22 @@ if TYPE_CHECKING:
 
 # Hard ceilings imposed by the AXI-Stream header's own wire format (see
 # tm_accel_gp.v:22-30) — word1/word2 8-bit sub-fields (n_classes,
-# clauses_per_class, n_beats, n_feat_slices, n_clause_slices) and word3
-# 16-bit sub-fields (n_clauses_total, n_tiles). The vendored core's internal
-# FSM registers were widened to match these exactly (see tm_accel_gp.v's
-# capacity register table), so these are now the true ceilings — not an
-# arbitrary internal-register limitation. Going beyond them requires
-# changing the wire protocol itself (a breaking change to the header
-# format), out of scope for this backend.
+# clauses_per_class, threshold, n_beats, n_feat_slices, n_clause_slices) and
+# word3 16-bit sub-fields (n_clauses_total, n_tiles). The vendored core's
+# internal FSM registers were widened to match these exactly (see
+# tm_accel_gp.v's capacity register table), so these are now the true
+# ceilings — not an arbitrary internal-register limitation. Going beyond
+# them requires changing the wire protocol itself (a breaking change to the
+# header format), out of scope for this backend.
 HARD_MAX_CLASSES = 255
 HARD_MAX_CLAUSES_TOTAL = 65535
 HARD_MAX_FEAT_SLICES = 255
 HARD_MAX_CLAUSE_SLICES = 255
 HARD_MAX_CLAUSES_PER_CLASS = 255
 HARD_MAX_TILES = 65535
-HARD_MAX_THRESHOLD = 31  # SCORE_WIDTH=6 is fixed by the vendored core
+# threshold is VESTIGIAL (scores are unclamped, see score_acc_rt.v) --
+# this is the header's 8-bit field width, not a hardware clamp bound.
+HARD_MAX_THRESHOLD = 255
 
 
 class GPCapacityError(ValueError):
@@ -168,7 +170,8 @@ def check_capacity(tmir: "TMIR", config: "GPTiledAcceleratorConfig") -> None:
     if arch.threshold > HARD_MAX_THRESHOLD:
         problems.append(
             f"threshold={arch.threshold} exceeds the hard RTL limit of {HARD_MAX_THRESHOLD} "
-            f"(SCORE_WIDTH=6 is fixed by the vendored core)"
+            f"(the CMD_LOAD header's threshold field is 8 bits; threshold itself is "
+            f"vestigial and has no effect on scoring, see score_acc_rt.v)"
         )
     if arch.n_clauses_per_class is not None and arch.n_clauses_per_class > HARD_MAX_CLAUSES_PER_CLASS:
         problems.append(

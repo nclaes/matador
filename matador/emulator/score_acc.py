@@ -6,17 +6,25 @@ from matador.emulator.trace import ScoreStateEvent, ScoreVoteEvent
 
 
 class ScoreAccEmulator:
-    """Signed score accumulator with symmetric saturation at ±threshold.
+    """Signed score accumulator, unclamped — the raw vote sum.
 
     Mirrors score_acc.v:
-      - Positive clause vote: score[cls] = min(score[cls] + 1, +T)
-      - Negative clause vote: score[cls] = max(score[cls] - 1, -T)
+      - Positive clause vote: score[cls] = score[cls] + 1
+      - Negative clause vote: score[cls] = score[cls] - 1
       - Only updates when clause_active == True
+
+    No saturation: the register in score_acc.v is sized (score_width, see
+    TMAccelerator) to the true worst-case vote magnitude for the model
+    being generated, so it can never overflow -- there is nothing to clamp
+    against. This matches the software reference engine
+    (matador.inference.reference.predict) exactly, which also never clips
+    the vote sum; clause-sum clipping to +/-T only exists in the Tsetlin
+    Machine literature as a TRAINING-time feedback-probability construct,
+    not part of inference/classification.
     """
 
-    def __init__(self, n_classes: int, threshold: int, cycle_ref: list):
+    def __init__(self, n_classes: int, cycle_ref: list):
         self._n_classes = n_classes
-        self._threshold = threshold
         self._scores = [0] * n_classes
         self._cycle_ref = cycle_ref
         self._vote_cnt = 0
@@ -31,15 +39,7 @@ class ScoreAccEmulator:
     def update(self, class_idx: int, is_positive: bool, clause_active: bool) -> ScoreVoteEvent:
         """Apply one clause vote and return the event."""
         before = self._scores[class_idx]
-        if clause_active:
-            if is_positive:
-                after = min(before + 1, self._threshold)
-            else:
-                after = max(before - 1, -self._threshold)
-            saturated = (after == before) and clause_active
-        else:
-            after = before
-            saturated = False
+        after = (before + 1 if is_positive else before - 1) if clause_active else before
         self._scores[class_idx] = after
 
         polarity = "positive" if is_positive else "negative"
@@ -52,7 +52,6 @@ class ScoreAccEmulator:
             clause_active=clause_active,
             score_before=before,
             score_after=after,
-            saturated=saturated,
         )
         self._vote_cnt += 1
         return ev

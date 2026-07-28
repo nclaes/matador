@@ -142,9 +142,12 @@ def test_params_multi_beat_64(tmp_path):
 
 
 def test_score_width_sufficient(tmp_path):
-    accel = _make_accel(tmp_path, threshold=200)
-    # score_width must hold signed [-200, 200]
-    assert 2 ** (accel.score_width - 1) > 200
+    # score_width is sized off half the clauses per class (the true
+    # worst-case vote magnitude), not threshold -- score_acc.v no longer
+    # clamps, so the register must hold the full unclamped sum.
+    accel = _make_accel(tmp_path, n_clauses_pc=400, threshold=4)
+    half_k = 400 // 2
+    assert 2 ** (accel.score_width - 1) > half_k
 
 
 # ---------------------------------------------------------------------------

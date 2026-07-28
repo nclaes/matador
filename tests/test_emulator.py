@@ -191,7 +191,7 @@ class TestFIFOEmulator:
 class TestScoreAccEmulator:
     def setup_method(self):
         self.cycle_ref = [0]
-        self.acc = ScoreAccEmulator(n_classes=2, threshold=4, cycle_ref=self.cycle_ref)
+        self.acc = ScoreAccEmulator(n_classes=2, cycle_ref=self.cycle_ref)
 
     def test_positive_vote_increments(self):
         ev = self.acc.update(class_idx=0, is_positive=True, clause_active=True)
@@ -205,15 +205,15 @@ class TestScoreAccEmulator:
         ev = self.acc.update(class_idx=0, is_positive=True, clause_active=False)
         assert ev.score_after == 0
 
-    def test_positive_saturation(self):
+    def test_positive_accumulation_unclamped(self):
         for _ in range(10):
             ev = self.acc.update(0, True, True)
-        assert ev.score_after == 4
+        assert ev.score_after == 10
 
-    def test_negative_saturation(self):
+    def test_negative_accumulation_unclamped(self):
         for _ in range(10):
             ev = self.acc.update(0, False, True)
-        assert ev.score_after == -4
+        assert ev.score_after == -10
 
     def test_clear_resets(self):
         self.acc.update(0, True, True)

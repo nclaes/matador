@@ -5,7 +5,7 @@
 # =============================================================================
 # WHAT THIS FILE PROVIDES
 #   TMModel                 in-memory model (Include bits + geometry)
-#   TMModel.infer()         cycle-exact inference semantics (clamp, ties,
+#   TMModel.infer()         cycle-exact inference semantics (unclamped, ties,
 #                           empty-clause rule) — matches score_acc/argmax RTL
 #   pack_tiles()            model -> list of TILE_WIDTH-bit ROM/BRAM rows
 #   unpack_tiles()          inverse of pack_tiles (used for self-checks)
@@ -22,6 +22,8 @@
 #
 #   CMD_LOAD (0x02) — reprogram the tile memory with a new model:
 #     word1  [7:0]  n_classes     [15:8] clauses_per_class  [23:16] threshold
+#                                        (VESTIGIAL: scores are unclamped,
+#                                        kept only for wire compatibility)
 #     word2  [7:0]  n_beats       [15:8] n_feat_slices      [23:16] n_clause_slices
 #     word3  [15:0] n_clauses_total                         [31:16] n_tiles
 #     payload: n_tiles rows x 64 words each; word w of a row carries row
@@ -48,9 +50,11 @@
 # HARDWARE SEMANTICS REPLICATED EXACTLY
 #   * clause fires  iff  (Include mask nonzero) AND every Included literal == 1
 #   * literal order: bit l (l < F) = feature l; bit F+f = NOT feature f
-#   * scores: guarded update  (pol & s<T -> s+1) / (~pol & s>-T -> s-1)
-#             => clamp range is [-T, +T]  (note: README says [-(T-1),T-1],
-#             but the RTL and tb_score_acc agree on +/-T; we match the RTL)
+#   * scores: unclamped  (pol -> s+1) / (~pol -> s-1), raw vote sum, no
+#             saturation. (An earlier version guarded each update against a
+#             runtime `threshold`, clamping to [-T,+T]; removed as
+#             order-dependent and unnecessary -- SCORE_WIDTH is sized to the
+#             true worst-case magnitude, so the register never overflows.)
 #   * clause g belongs to class g // cpc; positive iff (g % cpc) < cpc // 2
 #   * argmax: linear scan, ties to the LOWER class index
 #
@@ -92,7 +96,9 @@ MAX_CLAUSES_TOTAL  = 256
 MAX_FEAT_SLICES    = 16
 MAX_CLAUSE_SLICES  = 8
 MAX_TILES          = MAX_FEAT_SLICES * MAX_CLAUSE_SLICES   # 128
-MAX_THRESHOLD      = 31        # |score| must fit signed SCORE_WIDTH=6
+# threshold (header word1 byte [23:16]) is VESTIGIAL -- scores are unclamped
+# (see score_acc_rt.v); this only bounds what the 8-bit wire field can hold.
+MAX_THRESHOLD      = 255
 
 
 def _ceil_div(a: int, b: int) -> int:
@@ -182,7 +188,6 @@ class TMModel:
         """Returns (predicted_class, scores). Bit f of `features` = feature f."""
         lits = self.literals_of(features)
         half = self.clauses_per_class // 2
-        T = self.threshold
         scores = [0] * self.n_classes
         for g in range(self.n_clauses_total):
             if not self.clause_active(g, lits):
@@ -190,11 +195,9 @@ class TMModel:
             cls = g // self.clauses_per_class
             pos = (g % self.clauses_per_class) < half
             if pos:
-                if scores[cls] < T:
-                    scores[cls] += 1           # guarded update -> clamp [-T,+T]
+                scores[cls] += 1                # unclamped
             else:
-                if scores[cls] > -T:
-                    scores[cls] -= 1
+                scores[cls] -= 1
         best, best_s = 0, scores[0]
         for k in range(1, self.n_classes):
             if scores[k] > best_s:             # strict > : ties keep lower index
@@ -231,16 +234,15 @@ class TMModel:
                         clause_pass[g] = clause_pass[g] and eff
                         clause_has[g] = clause_has[g] or has
         half = self.clauses_per_class // 2
-        T = self.threshold
         scores = [0] * self.n_classes
         for g in range(self.n_clauses_total):
             if not (clause_pass[g] and clause_has[g]):
                 continue
             cls = g // self.clauses_per_class
             pos = (g % self.clauses_per_class) < half
-            if pos and scores[cls] < T:
-                scores[cls] += 1
-            elif (not pos) and scores[cls] > -T:
+            if pos:
+                scores[cls] += 1                # unclamped
+            else:
                 scores[cls] -= 1
         best, best_s = 0, scores[0]
         for k in range(1, self.n_classes):

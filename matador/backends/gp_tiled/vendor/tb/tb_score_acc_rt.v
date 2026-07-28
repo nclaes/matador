@@ -1,6 +1,7 @@
 `timescale 1ns/1ps
-// tb_score_acc_rt — unit test: clamping at several RUNTIME thresholds,
-//                   inactive holds, clear, unused-class isolation
+// tb_score_acc_rt — unit test: unclamped accumulation (threshold is
+//                   vestigial and must have zero effect), inactive holds,
+//                   clear, unused-class isolation
 module tb_score_acc_rt;
     parameter N_CLASSES   = 16;
     parameter SCORE_WIDTH = 6;
@@ -27,7 +28,7 @@ module tb_score_acc_rt;
 
     integer fail_cnt, i, t;
 
-    task pump;                       // n guarded votes on class c
+    task pump;                       // n votes on class c (unguarded)
         input integer n;
         input [3:0]   c;
         input         pol;
@@ -51,7 +52,11 @@ module tb_score_acc_rt;
         rst_n = 0; repeat(4) @(posedge clk);
         rst_n = 1; @(posedge clk);
 
-        // ── clamp sweep across runtime thresholds 1, 3, 8, 31 ────────────
+        // ── unclamped accumulation, threshold is vestigial: sweep several
+        //    runtime threshold values (1, 3, 8, 31) while accumulating the
+        //    SAME 20 votes each time -- the result must not depend on
+        //    threshold at all, proving the field has no effect on the
+        //    accumulator ──────────────────────────────────────────────────
         for (t = 0; t < 4; t = t + 1) begin
             case (t)
                 0: threshold = 6'd1;
@@ -60,20 +65,20 @@ module tb_score_acc_rt;
                 default: threshold = 6'd31;
             endcase
             do_clear;
-            pump(35, 4'd0, 1'b1);                     // more votes than any T
-            if ($signed(score_of(0)) !== $signed(threshold)) begin
-                $display("FAIL clamp+ T=%0d: got=%0d", threshold, $signed(score_of(0)));
+            pump(20, 4'd0, 1'b1);
+            if ($signed(score_of(0)) !== 20) begin
+                $display("FAIL accum+ threshold=%0d: exp=20 got=%0d", threshold, $signed(score_of(0)));
                 fail_cnt = fail_cnt + 1;
             end
             do_clear;
-            pump(35, 4'd0, 1'b0);
-            if ($signed(score_of(0)) !== -$signed(threshold)) begin
-                $display("FAIL clamp- T=%0d: got=%0d", threshold, $signed(score_of(0)));
+            pump(20, 4'd0, 1'b0);
+            if ($signed(score_of(0)) !== -20) begin
+                $display("FAIL accum- threshold=%0d: exp=-20 got=%0d", threshold, $signed(score_of(0)));
                 fail_cnt = fail_cnt + 1;
             end
         end
 
-        // ── mixed polarity bookkeeping at T=8: +5 then -2 = +3 ───────────
+        // ── mixed polarity bookkeeping: +5 then -2 = +3 ──────────────────
         threshold = 6'd8; do_clear;
         pump(5, 4'd2, 1'b1);
         pump(2, 4'd2, 1'b0);
@@ -107,18 +112,18 @@ module tb_score_acc_rt;
             end
         end
 
-        // ── threshold shrink mid-flight: score above new T holds on + ───
+        // ── threshold changing mid-flight still has no effect ────────────
         threshold = 6'd8; do_clear;
-        pump(8, 4'd1, 1'b1);                          // reach +8
+        pump(8, 4'd1, 1'b1);                          // score = 8
         threshold = 6'd3; @(posedge clk);
-        pump(1, 4'd1, 1'b1);                          // 8 < 3 is false -> hold
-        if ($signed(score_of(1)) !== 8) begin
-            $display("FAIL shrink-hold: exp=8 got=%0d", $signed(score_of(1)));
+        pump(1, 4'd1, 1'b1);                          // unclamped: score = 9
+        if ($signed(score_of(1)) !== 9) begin
+            $display("FAIL mid-flight+: exp=9 got=%0d", $signed(score_of(1)));
             fail_cnt = fail_cnt + 1;
         end
-        pump(1, 4'd1, 1'b0);                          // 8 > -3 -> decrement
-        if ($signed(score_of(1)) !== 7) begin
-            $display("FAIL shrink-dec: exp=7 got=%0d", $signed(score_of(1)));
+        pump(1, 4'd1, 1'b0);                          // unclamped: score = 8
+        if ($signed(score_of(1)) !== 8) begin
+            $display("FAIL mid-flight-: exp=8 got=%0d", $signed(score_of(1)));
             fail_cnt = fail_cnt + 1;
         end
 

@@ -88,7 +88,15 @@ class TMAccelerator:
         self.n_beats = (self.n_features + self.axis_dw - 1) // self.axis_dw
 
         # Register widths
-        self.score_width     = max(4, int(math.ceil(math.log2(self.threshold + 1))) + 2)
+        # score_width is sized to the TRUE worst-case vote magnitude (half
+        # the clauses in a class, all of one polarity, all firing), not to
+        # THRESHOLD -- score_acc.v no longer clamps (see its own header
+        # comment), so the register must never overflow regardless of what
+        # threshold happens to be. Mirrors HardwiredBackend's own SCORE_W
+        # sizing (matador/backends/hardwired/rtl.py), which has always
+        # worked this way since hw_score.v never clamped to begin with.
+        half_k = self.n_clauses_pc // 2
+        self.score_width     = max(4, int(math.ceil(math.log2(half_k + 1))) + 2)
         self.class_width     = max(1, int(math.ceil(math.log2(max(self.n_classes, 2)))))
         self.clause_cnt_w    = max(2, int(math.ceil(math.log2(self.n_clauses_total + 1))))
         self.beat_cnt_w      = max(1, int(math.ceil(math.log2(self.n_beats + 1))))
@@ -432,11 +440,24 @@ class TMAccelerator:
         //   are negative (polarity=0) — an active negative clause decrements by 1.
         //   Only *active* clauses vote; inactive clauses leave scores unchanged.
         //
-        // CLAMPING
-        //   Scores are clamped to [-THRESHOLD, THRESHOLD-1]. The guard is:
-        //     positive: update only if score < THRESHOLD  (stops at THRESHOLD-1)
-        //     negative: update only if score > -THRESHOLD (stops at -(THRESHOLD-1))
-        //   Guarded increment/decrement (not clip-after-add) avoids overflow.
+        // NO CLAMPING -- UNCLAMPED VOTE SUM
+        //   Scores are the raw, unclamped sum of clause votes, matching
+        //   matador.inference.reference.predict() (the software golden model)
+        //   exactly. Clause-sum clipping to a threshold T only appears in the
+        //   Tsetlin Machine literature as a TRAINING-time feedback-probability
+        //   construct; it is not part of inference/classification, so this
+        //   accelerator (inference-only) does not apply it. SCORE_WIDTH is
+        //   sized (see TMAccelerator.score_width) to the true worst-case vote
+        //   magnitude for the generated model -- half its clauses, all of one
+        //   polarity, all firing -- so the register can never overflow and
+        //   there is nothing to saturate against.
+        //   (An earlier version of score_acc clamped the RUNNING partial sum
+        //   during accumulation, guarded at a configurable THRESHOLD. That
+        //   was order-dependent -- a class processing many same-polarity
+        //   clauses before the opposite polarity's could saturate early and
+        //   lose headroom -- and diverged from the unclamped reference by a
+        //   point or two on a meaningful fraction of real vectors. Removed
+        //   in favor of the exact, unclamped sum.)
         //
         // OUTPUT FORMAT
         //   scores_flat is a flat packed bus. Class j occupies bits [j*SW +: SW] as a
@@ -453,7 +474,6 @@ class TMAccelerator:
         // =============================================================================
         module score_acc #(
             parameter N_CLASSES   = 2,
-            parameter THRESHOLD   = 4,
             parameter SCORE_WIDTH = 8
         )(
             input  wire                                   clk,
@@ -465,8 +485,6 @@ class TMAccelerator:
             input  wire                                   active,
             output wire [SCORE_WIDTH*N_CLASSES-1:0]       scores_flat
         );
-
-            localparam [SCORE_WIDTH-1:0] THRESH = THRESHOLD[SCORE_WIDTH-1:0];
 
             reg signed [SCORE_WIDTH-1:0] scores [0:N_CLASSES-1];
             integer i;
@@ -487,11 +505,9 @@ class TMAccelerator:
                         scores[i] = {{SCORE_WIDTH{{1'b0}}}};
                 end else if (valid & active) begin
                     if (polarity) begin
-                        if ($signed(scores[cls]) < $signed(THRESH))
-                            scores[cls] <= scores[cls] + 1;
+                        scores[cls] <= scores[cls] + 1;
                     end else begin
-                        if ($signed(scores[cls]) > -$signed(THRESH))
-                            scores[cls] <= scores[cls] - 1;
+                        scores[cls] <= scores[cls] - 1;
                     end
                 end
             end
@@ -559,7 +575,6 @@ class TMAccelerator:
         C   = self.n_classes
         K   = self.n_clauses_pc
         CT  = self.n_clauses_total
-        T   = self.threshold
         NB  = self.n_beats
         AW  = self.axis_dw
         SW  = self.score_width
@@ -708,7 +723,6 @@ class TMAccelerator:
             f"    parameter N_CLASSES       = {C},\n"
             f"    parameter N_CLAUSES_PC    = {K},\n"
             f"    parameter N_CLAUSES_TOTAL = {CT},\n"
-            f"    parameter THRESHOLD       = {T},\n"
             f"    parameter N_BEATS         = {NB},\n"
             f"    /* verilator lint_on UNUSED */\n"
             f"    // ── Tile parameters (user-specified via accelerator_config.yaml) ─────\n"
@@ -860,7 +874,6 @@ class TMAccelerator:
             f"\n"
             f"    score_acc #(\n"
             f"        .N_CLASSES  (N_CLASSES),\n"
-            f"        .THRESHOLD  (THRESHOLD),\n"
             f"        .SCORE_WIDTH(SCORE_WIDTH)\n"
             f"    ) u_score_acc (\n"
             f"        .clk(clk), .rst_n(rst_n), .clear(score_clear), .valid(score_valid),\n"
@@ -1143,8 +1156,8 @@ class TMAccelerator:
             f"                // on the S_COMPUTE → S_SCORE transition.\n"
             f"                //\n"
             f"                // The score_acc sub-module is enabled (score_valid=1) throughout\n"
-            f"                // S_SCORE.  It maintains {C} signed {SW}-bit scores clamped to\n"
-            f"                // [-{T}, +{T}-1], one per class.  The argmax sub-module is\n"
+            f"                // S_SCORE.  It maintains {C} signed {SW}-bit scores, unclamped\n"
+            f"                // (see score_acc.v), one per class.  The argmax sub-module is\n"
             f"                // combinational and continuously selects the winning class from\n"
             f"                // scores_flat, but tm_accelerator only samples argmax_out in S_DONE.\n"
             f"                //\n"
@@ -1173,15 +1186,17 @@ class TMAccelerator:
             f"                //\n"
             f"                //     // 3. Update the score for score_class  — inside score_acc\n"
             f"                //     if score_active:\n"
-            f"                //       if score_is_pos:  scores[score_class] += 1  (clamped at +{T}-1)\n"
-            f"                //       else:             scores[score_class] -= 1  (clamped at -{T})\n"
+            f"                //       if score_is_pos:  scores[score_class] += 1  (unclamped)\n"
+            f"                //       else:             scores[score_class] -= 1  (unclamped)\n"
             f"                //     // (no update if clause did not fire)\n"
             f"                //\n"
             f"                //     ══════════ CYCLE ENDS ══════════\n"
             f"                //\n"
             f"                // After all {CT} iterations:\n"
-            f"                //   scores[0..{C-1}] each hold a signed {SW}-bit integer in\n"
-            f"                //   [{-T}, {T-1}].  scores_flat ({SW*C}-bit) packs them as\n"
+            f"                //   scores[0..{C-1}] each hold a signed {SW}-bit integer, the\n"
+            f"                //   raw unclamped vote sum (SW is sized so this can never\n"
+            f"                //   overflow — see TMAccelerator.score_width).  scores_flat\n"
+            f"                //   ({SW*C}-bit) packs them as\n"
             f"                //     scores_flat[j×{SW} +: {SW}] = scores[j]  (two's complement)\n"
             f"                //\n"
             f"                //   argmax_out ({CW}-bit) = index of max(scores[0..{C-1}])\n"
@@ -1487,9 +1502,15 @@ class TMAccelerator:
 
     def _gen_tb_score_acc(self) -> str:
         C  = self.n_classes
-        T  = self.threshold
         SW = self.score_width
         CW = max(1, int(math.ceil(math.log2(max(C, 2)))))
+        # Vote count for the unclamped-accumulation tests below: the true
+        # worst-case magnitude score_width is sized for (see TMAccelerator's
+        # score_width computation) -- half the clauses in a class, all of
+        # one polarity, all firing. Exercising exactly that many votes both
+        # proves accumulation is unclamped and stays within the register's
+        # guaranteed-safe range.
+        NV = max(1, self.n_clauses_pc // 2)
 
         # Data-driven section: replay all score-accumulator votes from test 0.
         # After all votes, compare scores_flat against the emulator ground truth.
@@ -1540,10 +1561,9 @@ class TMAccelerator:
 
         lines = [
             "`timescale 1ns/1ps",
-            "// tb_score_acc — unit test: accumulation, clamping, clear, data-driven vote replay",
+            "// tb_score_acc — unit test: unclamped accumulation, clear, data-driven vote replay",
             "module tb_score_acc;",
             f"    parameter N_CLASSES   = {C};",
-            f"    parameter THRESHOLD   = {T};",
             f"    parameter SCORE_WIDTH = {SW};",
             "",
             "    reg                              clk, rst_n;",
@@ -1552,7 +1572,7 @@ class TMAccelerator:
             "    wire [SCORE_WIDTH*N_CLASSES-1:0] scores_flat;",
             "",
             "    score_acc #(",
-            "        .N_CLASSES(N_CLASSES), .THRESHOLD(THRESHOLD), .SCORE_WIDTH(SCORE_WIDTH)",
+            "        .N_CLASSES(N_CLASSES), .SCORE_WIDTH(SCORE_WIDTH)",
             "    ) dut (",
             "        .clk(clk), .rst_n(rst_n), .clear(clear),",
             "        .valid(valid), .cls(cls), .polarity(polarity),",
@@ -1577,31 +1597,31 @@ class TMAccelerator:
             "        rst_n = 0; repeat(4) @(posedge clk);",
             "        rst_n = 1; @(posedge clk);",
             "",
-            "        // ── synthetic: clamp +T ─────────────────────────────",
-            "        for (i = 0; i < THRESHOLD + 2; i = i + 1) begin",
+            "        // ── synthetic: unclamped positive accumulation ──────",
+            f"        for (i = 0; i < {NV}; i = i + 1) begin",
             "            valid = 1; cls = 0; polarity = 1; active = 1; @(posedge clk);",
             "        end",
             "        valid = 0; @(posedge clk);",
-            f"        if ($signed(score_of(0)) !== $signed({SW}'d{T})) begin",
-            f'            $display("FAIL clamp+: exp=%0d got=%0d", {T}, $signed(score_of(0)));',
+            f"        if ($signed(score_of(0)) !== $signed({SW}'d{NV})) begin",
+            f'            $display("FAIL accum+: exp=%0d got=%0d", {NV}, $signed(score_of(0)));',
             "            fail_cnt = fail_cnt + 1;",
             "        end",
             "",
-            "        // ── synthetic: clamp -T (start fresh from 0) ───────────",
+            "        // ── synthetic: unclamped negative accumulation (start fresh) ─",
             "        clear = 1; @(posedge clk); clear = 0; @(posedge clk);",
-            "        for (i = 0; i < THRESHOLD + 2; i = i + 1) begin",
+            f"        for (i = 0; i < {NV}; i = i + 1) begin",
             "            valid = 1; cls = 0; polarity = 0; active = 1; @(posedge clk);",
             "        end",
             "        valid = 0; @(posedge clk);",
-            f"        if ($signed(score_of(0)) !== -$signed({SW}'d{T})) begin",
-            f'            $display("FAIL clamp-: exp=%0d got=%0d", -{T}, $signed(score_of(0)));',
+            f"        if ($signed(score_of(0)) !== -$signed({SW}'d{NV})) begin",
+            f'            $display("FAIL accum-: exp=%0d got=%0d", -{NV}, $signed(score_of(0)));',
             "            fail_cnt = fail_cnt + 1;",
             "        end",
             "",
             "        // ── synthetic: inactive clause does not change score ─",
             "        valid = 1; cls = 0; polarity = 1; active = 0; @(posedge clk);",
             "        valid = 0; @(posedge clk);",
-            f"        if ($signed(score_of(0)) !== -$signed({SW}'d{T})) begin",
+            f"        if ($signed(score_of(0)) !== -$signed({SW}'d{NV})) begin",
             '            $display("FAIL inactive: score changed unexpectedly");',
             "            fail_cnt = fail_cnt + 1;",
             "        end",
@@ -1710,7 +1730,6 @@ class TMAccelerator:
         C   = self.n_classes
         K   = self.n_clauses_pc
         CT  = self.n_clauses_total
-        T   = self.threshold
         NB  = self.n_beats
         AW  = self.axis_dw
         SW  = self.score_width
@@ -1757,7 +1776,6 @@ class TMAccelerator:
             f"    parameter N_CLASSES       = {C};\n"
             f"    parameter N_CLAUSES_PC    = {K};\n"
             f"    parameter N_CLAUSES_TOTAL = {CT};\n"
-            f"    parameter THRESHOLD       = {T};\n"
             f"    parameter N_BEATS         = {NB};\n"
             f"    parameter FEAT_SLICE      = {FS};\n"
             f"    parameter CLAUSE_SLICE    = {CS};\n"
@@ -1787,7 +1805,7 @@ class TMAccelerator:
             f"    tm_accelerator #(\n"
             f"        .N_FEATURES(N_FEATURES), .N_CLASSES(N_CLASSES),\n"
             f"        .N_CLAUSES_PC(N_CLAUSES_PC), .N_CLAUSES_TOTAL(N_CLAUSES_TOTAL),\n"
-            f"        .THRESHOLD(THRESHOLD), .N_BEATS(N_BEATS),\n"
+            f"        .N_BEATS(N_BEATS),\n"
             f"        .FEAT_SLICE(FEAT_SLICE), .CLAUSE_SLICE(CLAUSE_SLICE),\n"
             f"        .N_FEAT_SLICES(N_FEAT_SLICES), .N_CLAUSE_SLICES(N_CLAUSE_SLICES),\n"
             f"        .N_FEAT_PADDED(N_FEAT_PADDED), .TILE_WIDTH(TILE_WIDTH),\n"
@@ -2188,7 +2206,6 @@ class TMAccelerator:
         C    = self.n_classes
         K    = self.n_clauses_pc
         CT   = self.n_clauses_total
-        T    = self.threshold
         NB   = self.n_beats
         AW   = self.axis_dw
         FS   = self.feat_slice
@@ -2233,7 +2250,6 @@ without regenerating the RTL.
 | `N_CLASSES`           | {C}    | Output classes |
 | `N_CLAUSES_PER_CLASS` | {K}    | Clauses per class |
 | `N_CLAUSES_TOTAL`     | {CT}   | {C} × {K} |
-| `THRESHOLD`           | {T}    | Score clamping bound |
 | `FEAT_SLICE`          | {FS}   | Features evaluated per tile |
 | `CLAUSE_SLICE`        | {CS}   | Clauses evaluated in parallel |
 | `N_FEAT_SLICES`       | {NFS}  | Tile rows  (⌈{N}/{FS}⌉) |
@@ -2344,7 +2360,7 @@ RTL/
 ├── src/                    Synthesisable RTL (no timing constructs)
 │   ├── axis_fifo.v         AXI-Stream synchronous FIFO
 │   ├── clause_eval.v       Single-clause combinatorial evaluator
-│   ├── score_acc.v         Per-class vote accumulator with clamping
+│   ├── score_acc.v         Per-class vote accumulator (unclamped)
 │   ├── argmax.v            Combinatorial tournament argmax
 │   └── tm_accelerator.v    Top module: FSM + ROM + all sub-modules
 │
@@ -2430,10 +2446,10 @@ Step 3  Score accumulation  (one clause per cycle, {CT} cycles)
         The {K} clauses per class are split: first {half_k} are positive,
         last {half_k} are negative.
         For each class j:
-          score[j] = clamp(
+          score[j] = (
               SUM active[c] for c in positive_clauses[j]
-            - SUM active[c] for c in negative_clauses[j],
-            range [-{T}, +{T}])
+            - SUM active[c] for c in negative_clauses[j]
+          )     // unclamped -- SCORE_WIDTH is sized to never overflow
 
 Step 4  Argmax
         predicted_class = argmax(score[0..{C-1}])
@@ -2716,7 +2732,8 @@ them top-to-bottom — they follow the dataflow order.
 - `scores_flat` is a packed {SW}×{C}-bit bus; examine individual classes.
 - Confirm `score_is_pos` alternates correctly for each class's {K} clauses
   (first {half_k} positive, next {half_k} negative).
-- Total score range after all {CT} clauses: [−{T-1}, +{T-1}].
+- Unclamped: each class's final score is bounded only by ±{half_k}
+  (half its clauses, all of one polarity, all firing).
 
 **7. AXI-Stream Output** (`m_tvalid`, `m_tready`, `m_tdata`, `m_tlast`)
 - `m_tvalid` asserts when the result is ready and stays high until `m_tready`.

@@ -212,11 +212,10 @@ class ScoreVoteEvent(TraceEvent):
     clause_active: bool
     score_before: int
     score_after: int
-    saturated: bool
 
     def __init__(self, cycle: int, score_cnt: int, clause_global: int,
                  class_idx: int, polarity: str, clause_active: bool,
-                 score_before: int, score_after: int, saturated: bool):
+                 score_before: int, score_after: int):
         super().__init__(cycle=cycle, module="score_acc")
         self.score_cnt = score_cnt
         self.clause_global = clause_global
@@ -225,7 +224,6 @@ class ScoreVoteEvent(TraceEvent):
         self.clause_active = clause_active
         self.score_before = score_before
         self.score_after = score_after
-        self.saturated = saturated
 
 
 @dataclass
