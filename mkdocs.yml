@@ -1,6 +1,6 @@
 site_name: Matador
 site_description: Automated RTL accelerator generator for Tsetlin Machines
-site_url: https://nclaes.github.io/matador/
+# site_url is set by Read the Docs at build time (https://<slug>.readthedocs.io/)
 repo_url: https://github.com/nclaes/matador
 repo_name: nclaes/matador
 edit_uri: edit/production_ready/docs/
