@@ -108,6 +108,16 @@ See [docs/Developer.md](docs/Developer.md#adding-a-new-accelerator-backend) to a
 
 ---
 
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE). You're free to use, modify, and
+redistribute this code (including commercially); modified files must carry a
+notice stating what you changed (License §4(b)). Third-party components
+(`tmu/`, `matador/backends/gp_tiled/vendor/`) retain their own licenses/
+copyright — see [NOTICE](NOTICE).
+
+---
+
 ## Contact
 
 Developed by Tousif Rahman, Gang Mao, Bob Pattison, Sidharth Maheshwari, Marcos Sartori and Han Wu Microsystems Group, Newcastle University.  

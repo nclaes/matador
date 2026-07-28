@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "matador"
 version = "0.2.0-dev0"
 requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 dependencies = [
     "jinja2",
     "pyyaml",
