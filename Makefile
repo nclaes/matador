@@ -73,9 +73,13 @@ shell:
 
 # Compile the tmu C extension inside the container.
 # Must be run once after `make build` — output goes to tmu/tmulib.cpython-*.so
-# The .so is gitignored (platform/Python-version specific).
+# The .so is gitignored (platform/Python-version specific). -f: nothing to
+# remove on a genuinely fresh clone/build -- this used to be a bare `rm` of
+# one hardcoded platform-specific filename (cpython-312-aarch64-linux-gnu),
+# which failed unconditionally on any host that wasn't that exact Python/arch
+# combo, aborting the target before it ever compiled anything.
 tmu-build:
-	rm /workspace/tmu/tmulib.cpython-312-aarch64-linux-gnu.so
+	rm -f /workspace/tmu/tmulib.cpython-*.so
 	bash -c "python3 tmu/lib/tmulib_extension_build.py"
 
 test:
