@@ -60,23 +60,39 @@ class ComparisonReport:
 # Core comparison functions
 # ---------------------------------------------------------------------------
 
-def compare_emulator_to_reference(tmir, cfg) -> ComparisonReport:
+def compare_emulator_to_reference(tmir, cfg, emulator_cls=None) -> ComparisonReport:
     """Run the emulator and reference inference on all embedded test vectors.
 
-    Checks that TMAcceleratorEmulator agrees with the mathematical reference
+    Checks that the emulator agrees with the mathematical reference
     inference (matador.inference.reference.predict) on every vector.
 
     Args:
         tmir: TMIR model instance.
-        cfg:  TMAcceleratorConfig instance.
+        cfg:  Backend-specific accelerator config instance (e.g.
+              TMAcceleratorConfig, HardwiredAcceleratorConfig,
+              GPTiledAcceleratorConfig) — must match emulator_cls.
+        emulator_cls: The emulator class to instantiate as
+              emulator_cls(tmir, cfg). Defaults to TMAcceleratorEmulator
+              (vanilla_tiled) for backward compatibility with existing
+              callers, but every caller with backend context should pass
+              backend.emulator_class explicitly — this used to be hardcoded
+              to TMAcceleratorEmulator unconditionally, which silently
+              verified the WRONG emulator for every other backend (it duck-
+              typed the other backends' config objects into TMAcceleratorEmulator
+              rather than erroring, so `matador emulate --verify` reported
+              false PASSes for vanilla_hardwired/vanilla_gp_tiled without
+              ever exercising their own emulators).
 
     Returns:
         ComparisonReport with per-vector outcomes.
     """
-    from matador.emulator.accelerator import TMAcceleratorEmulator
     from matador.inference.reference import predict
 
-    emul = TMAcceleratorEmulator(tmir, cfg)
+    if emulator_cls is None:
+        from matador.emulator.accelerator import TMAcceleratorEmulator
+        emulator_cls = TMAcceleratorEmulator
+
+    emul = emulator_cls(tmir, cfg)
 
     if not (tmir.verification and tmir.verification.test_vectors):
         _LOGGER.warning("No embedded test vectors in TMIR — nothing to compare")
@@ -133,19 +149,21 @@ def compare_emulator_to_reference(tmir, cfg) -> ComparisonReport:
     )
 
 
-def run_regression(tmir, cfg, extra_vectors: Optional[list] = None) -> ComparisonReport:
+def run_regression(tmir, cfg, extra_vectors: Optional[list] = None, emulator_cls=None) -> ComparisonReport:
     """Run the emulator against reference on embedded vectors + optional extras.
 
     Args:
         tmir:          TMIR model.
-        cfg:           TMAcceleratorConfig.
+        cfg:           Backend-specific accelerator config instance — must
+                       match emulator_cls (see compare_emulator_to_reference).
         extra_vectors: Additional (features_list, expected_class) tuples to test.
+        emulator_cls:  The emulator class to use — see
+                       compare_emulator_to_reference. Defaults to
+                       TMAcceleratorEmulator (vanilla_tiled).
 
     Returns:
         ComparisonReport with per-vector outcomes.
     """
-    from matador.emulator.accelerator import TMAcceleratorEmulator
-    from matador.inference.reference import predict
     from matador.ir.tm_ir import EvalVector, Verification
 
     # Collect all vectors: embedded + extras
@@ -168,4 +186,4 @@ def run_regression(tmir, cfg, extra_vectors: Optional[list] = None) -> Compariso
     import copy
     tmir_copy = copy.deepcopy(tmir)
     tmir_copy.verification = Verification(test_vectors=all_vecs)
-    return compare_emulator_to_reference(tmir_copy, cfg)
+    return compare_emulator_to_reference(tmir_copy, cfg, emulator_cls=emulator_cls)

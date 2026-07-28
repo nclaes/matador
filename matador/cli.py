@@ -1118,7 +1118,7 @@ def emulate(backend_name: str, config_path: Path, trace_path: Path, verbose: boo
         click.echo("")
         click.echo("Cross-checking emulator against reference inference…")
         from matador.verification.compare import compare_emulator_to_reference
-        report = compare_emulator_to_reference(tmir, config)
+        report = compare_emulator_to_reference(tmir, config, emulator_cls=emulator_cls)
         if report.all_passed:
             click.echo(click.style(
                 f"  Emulator matches reference on all {report.n_vectors} vector(s).", fg="green"

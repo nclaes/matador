@@ -1061,9 +1061,10 @@ class GPTiledBackend(RTLBackend):
             LOAD ack, `e=k+1` is `test_vectors.txt` row `k`.
 
             ```
-            bash sim/waves.sh              # prefers the Verilator .fst if present, else the iverilog .vcd
-            bash sim/waves.sh verilator     # explicitly open sim/verilator/tb_top.fst (no curated layout yet)
-            bash sim/waves.sh tb_system_gp  # explicitly open a specific iverilog testbench's .vcd
+            bash sim/waves.sh                    # prefers the Verilator .fst if present, else the iverilog .vcd
+            bash sim/waves.sh verilator           # explicitly open sim/verilator/tb_top.fst (no curated layout yet)
+            bash sim/waves.sh tb_system_gp        # explicitly open a specific iverilog testbench's .vcd
+            bash sim/waves.sh tb_reprogram_suite  # the multi-model reprogramming run, once built -- see § 4
             ```
 
             ## 3. Try a new model without resynthesizing
@@ -1095,7 +1096,33 @@ class GPTiledBackend(RTLBackend):
             One model at a time only shows this core *can* be reprogrammed in
             principle. To prove it end to end with models you actually wrote,
             chain several into one continuous LOAD → INFER → LOAD → INFER → ...
-            run with `gen_vectors.py sequence`:
+            run.
+
+            **If you have matador installed** (the common case — matador is what
+            built this bundle), the CLI-native path builds and runs it for you,
+            writing `tb/tb_reprogram_suite.v` and
+            `sim/reprogram_stimulus.memh`/`reprogram_expected.memh`/
+            `reprogram_manifest.txt` into *this* bundle alongside the
+            single-model artifacts above:
+
+            ```
+            matador reprogram-suite --backend vanilla_gp_tiled \\
+                --config vanilla_gp_tiled.yaml \\
+                --reprogram-config reprogram_config.yaml
+            ```
+
+            where `reprogram_config.yaml` lists an ordered `steps:` sequence,
+            each a trained TMIR model plus (optionally) a dataset or vector
+            file to draw test vectors from — omit both to fall back to that
+            model's own embedded test vectors (the most independent check:
+            those expected classes come from matador's separate mathematical
+            reference model, not from any code this bundle's RTL was built
+            with). See `docs/Usage.md` § Step 8 in the matador repo for the
+            full config schema.
+
+            **Without matador installed** (just this exported bundle),
+            `gen_vectors.py sequence` builds the same kind of multi-step
+            stream standalone:
 
             ```
             cd sim   # if not already there
@@ -1106,11 +1133,36 @@ class GPTiledBackend(RTLBackend):
             where `my_manifest.json` is a JSON list of `{{"model": ..., "vectors":
             ...}}` (or `{{"model": ..., "random": true, "n": N}}`) steps — see
             `sim/gen_vectors.py --help` / its module docstring for the exact
-            schema. The resulting testbench streams a LOAD ack + predictions for
-            *each* step in order, so a PASS there is a direct, checkable
+            schema.
+
+            Either way, the resulting testbench streams a LOAD ack + predictions
+            for *each* step in order, so a PASS there is a direct, checkable
             demonstration that the live hardware reprograms correctly across your
             own models, not just the two hardcoded demo models `tb_system_gp`
             ships with.
+
+            **Viewing it:** `sim/reprogram_manifest.txt` (or the equivalent
+            `my_manifest.json`-derived one from `gen_vectors.py`) maps each beat
+            index to which {{model, vector}} it belongs to — same `e` numbering
+            as the console's `PASS beat[e]`/`FAIL beat[e]` and the waveform, per
+            § 2 above:
+
+            ```
+            bash sim/waves.sh tb_reprogram_suite
+            ```
+
+            For Verilator, the same `sim/verilator/obj_dir/Vtm_accel_gp` binary
+            from § 1 replays this too — point it at the reprogram-suite vectors
+            with `--stim`/`--exp`:
+
+            ```
+            make -C sim/verilator run ARGS="--stim ../reprogram_stimulus.memh --exp ../reprogram_expected.memh"
+            ```
+
+            `make run` always writes to the same `sim/verilator/tb_top.fst`
+            regardless of which `--stim`/`--exp` you passed — running this
+            overwrites whatever trace (e.g. the single-model one from § 2) was
+            there before. Copy `tb_top.fst` aside first if you want to keep both.
 
             ## 5. Provenance
 
