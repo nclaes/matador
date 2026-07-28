@@ -82,13 +82,55 @@ def train_model(config: TrainingConfig, data: dict[str, np.ndarray]):
     return tm
 
 
+def _select_class_diverse_rows(y: np.ndarray, n: int, seed: int) -> list[int]:
+    """Pick up to *n* row indices, round-robin across the classes present in
+    *y*, each class's own rows shuffled first (seeded, reproducible).
+
+    Booleanized test-data files are not row-shuffled -- they typically
+    preserve the raw dataset's original order, which for several datasets
+    (e.g. sports, one contiguous block per activity) is grouped by class.
+    Taking the first n rows verbatim can then embed vectors that are all
+    the *same* ground-truth class, which defeats the point of a
+    verification sample. Round-robin sampling guarantees the embedded set
+    covers as many distinct classes as n allows, regardless of on-disk
+    ordering."""
+    rng = np.random.default_rng(seed)
+    by_class: dict[int, list[int]] = {}
+    for idx, cls in enumerate(y.tolist()):
+        by_class.setdefault(cls, []).append(idx)
+    for idx_list in by_class.values():
+        rng.shuffle(idx_list)
+
+    pos = dict.fromkeys(by_class, 0)
+    classes = sorted(by_class)
+    selected: list[int] = []
+    while len(selected) < n:
+        progressed = False
+        for cls in classes:
+            if len(selected) >= n:
+                break
+            rows = by_class[cls]
+            if pos[cls] < len(rows):
+                selected.append(rows[pos[cls]])
+                pos[cls] += 1
+                progressed = True
+        if not progressed:
+            break
+    return selected
+
+
 def _embed_test_vectors(tmir, config: "TrainingConfig", n: int = 10) -> None:
-    """Sample the first *n* rows of the test set and embed them into tmir.verification."""
+    """Sample up to *n* class-diverse rows from the test set (round-robin
+    across classes, seeded off config.seed) and embed them into
+    tmir.verification."""
     from matador.inference.reference import predict
 
     raw = np.genfromtxt(config.test_data, delimiter=" ", dtype=np.uint32)
     n = min(n, len(raw))
-    X = raw[:n, :-1].astype(np.uint8)
+    y = raw[:, -1]
+    selected = _select_class_diverse_rows(y, n, config.seed)
+
+    X = raw[selected, :-1].astype(np.uint8)
     preds, scores = predict(tmir, X)
     tmir.verification = Verification(
         test_vectors=[
@@ -97,10 +139,11 @@ def _embed_test_vectors(tmir, config: "TrainingConfig", n: int = 10) -> None:
                 expected_class=int(preds[i]),
                 expected_scores=[int(scores[i, j]) for j in range(scores.shape[1])],
             )
-            for i in range(n)
+            for i in range(len(selected))
         ]
     )
-    _LOGGER.debug("Embedded %d test vectors into TMIR", n)
+    n_distinct = len({int(y[i]) for i in selected})
+    _LOGGER.debug("Embedded %d test vectors into TMIR (%d distinct classes)", len(selected), n_distinct)
 
 
 def export_tmir(tm, config: TrainingConfig) -> tuple[Path, Path, Path]:

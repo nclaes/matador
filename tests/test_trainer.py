@@ -209,3 +209,69 @@ def test_rom_inference_script_runs_standalone_per_model(tmp_path, monkeypatch):
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# _embed_test_vectors -- verification vectors must span diverse classes even
+# when the on-disk test file is grouped by class (sports_test.txt is exactly
+# this shape: 19 contiguous blocks of 96 rows, one per class)
+# ---------------------------------------------------------------------------
+
+def _write_class_grouped_boolean_data(path: Path, n_features: int, rows_per_class: int, n_classes: int) -> None:
+    """Deliberately NOT shuffled -- one contiguous block per class, in class
+    order, mirroring how real datasets like sports are actually stored."""
+    rng = np.random.default_rng(123)
+    lines = []
+    for cls in range(n_classes):
+        for _ in range(rows_per_class):
+            feats = rng.integers(0, 2, size=n_features)
+            lines.append(" ".join(map(str, feats.tolist())) + f" {cls}")
+    path.write_text("\n".join(lines) + "\n")
+
+
+def test_select_class_diverse_rows_covers_every_class_when_grouped():
+    # 4 classes, 5 rows each, contiguous blocks -- picking the first n rows
+    # verbatim would only ever surface class 0.
+    y = np.array([0] * 5 + [1] * 5 + [2] * 5 + [3] * 5)
+    selected = trainer._select_class_diverse_rows(y, n=8, seed=0)
+    assert len(selected) == 8
+    assert {int(y[i]) for i in selected} == {0, 1, 2, 3}
+
+
+def test_select_class_diverse_rows_deterministic_with_same_seed():
+    y = np.array([0] * 5 + [1] * 5 + [2] * 5)
+    a = trainer._select_class_diverse_rows(y, n=6, seed=42)
+    b = trainer._select_class_diverse_rows(y, n=6, seed=42)
+    assert a == b
+
+
+def test_select_class_diverse_rows_handles_n_exceeding_row_count():
+    y = np.array([0, 0, 1, 1])
+    selected = trainer._select_class_diverse_rows(y, n=100, seed=0)
+    assert len(selected) == len(y)
+    assert sorted(selected) == [0, 1, 2, 3]
+
+
+def test_embed_test_vectors_spans_multiple_true_classes_when_test_file_is_class_grouped(tmp_path, monkeypatch):
+    """Integration-level: export_tmir's embedded test_vectors must draw their
+    *inputs* from more than one ground-truth class even when test_data is
+    stored as contiguous per-class blocks. expected_class on each EvalVector
+    is the model's own prediction (a self-consistency check), not ground
+    truth, so diversity is verified by mapping each embedded input back to
+    its true label in the raw test file."""
+    n_features, n_classes = 8, 4
+    cfg = _make_config(tmp_path, "grouped_train.txt", n_features=n_features, n_classes=n_classes)
+    _write_class_grouped_boolean_data(cfg.test_data, n_features, rows_per_class=5, n_classes=n_classes)
+
+    tmir = _make_fake_tmir(n_features=n_features, n_classes=n_classes)
+    yaml_path, _, _ = _export(monkeypatch, cfg, tmir)
+
+    reloaded = TMIR.from_yaml(yaml_path)
+    inputs = [tuple(v.input) for v in reloaded.verification.test_vectors]
+
+    raw = np.genfromtxt(cfg.test_data, delimiter=" ", dtype=np.uint32)
+    y = raw[:, -1]
+    true_class_by_input = {tuple(int(v) for v in raw[i, :-1]): int(y[i]) for i in range(len(raw))}
+    true_classes = {true_class_by_input[inp] for inp in inputs}
+
+    assert len(true_classes) > 1

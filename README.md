@@ -45,7 +45,7 @@ matador clean --dry-run      # preview a full workspace reset (nothing removed w
 | [docs/GeneratedOutputs.md](docs/GeneratedOutputs.md) | A map of `/work` — what every command writes, what each file is for, what's safe to delete |
 | [docs/Developer.md](docs/Developer.md) | Extending Matador — adding a new dataset, booleanisation technique, or accelerator backend |
 | **Worked examples** | |
-| [docs/walkthroughs/vanilla_gp_tiled.md](docs/walkthroughs/vanilla_gp_tiled.md) | Train two models (`sports`, `mnist`), reprogram one bitstream between them, then hand a third model to an RTL engineer with no matador install |
+| [docs/walkthroughs/vanilla_gp_tiled.md](docs/walkthroughs/vanilla_gp_tiled.md) | Train two models (`sports`, `statlog`), reprogram one bitstream between them (verified under iverilog and Verilator), then hand a third model to an RTL engineer with no matador install |
 | [docs/walkthroughs/vanilla_hardwired.md](docs/walkthroughs/vanilla_hardwired.md) | Train → generate → simulate → emulate, one model, wired-logic backend |
 | [docs/walkthroughs/vanilla_tiled.md](docs/walkthroughs/vanilla_tiled.md) | Train → generate → simulate → emulate, one model, tile-ROM backend |
 
