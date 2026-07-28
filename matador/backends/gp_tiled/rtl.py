@@ -982,7 +982,10 @@ class GPTiledBackend(RTLBackend):
               sim/model_reference.json     This model's raw parameters (geometry
                                           + compiled weights), in
                                           gen_vectors.py's JSON schema — also a
-                                          working example of that schema.
+                                          working example of that schema for a
+                                          DIFFERENT model (step 3): `matador
+                                          export-model-json` produces the same
+                                          shape from any trained TMIR.
               sim/capacity.json            This bitstream's synthesized capacity
                                           ceiling (what a new model must fit
                                           inside — see step 3).
@@ -1079,7 +1082,24 @@ class GPTiledBackend(RTLBackend):
             a working example — the exact model this bundle's own
             `model_stimulus.memh` was built from — and `sim/capacity.json` is
             what it reads to validate a new model against *this* bitstream's
-            actual synthesized capacity, not generic defaults:
+            actual synthesized capacity, not generic defaults.
+
+            **Getting a NEW model's JSON:** `gen_vectors.py` deliberately has no
+            matador dependency, so it can't read a trained TMIR file directly
+            (its `tm_emulator.py::load_tmir()` is an unimplemented stub, by
+            design — this tool isn't meant to know matador's internal formats).
+            Whoever trained the new model (i.e. has matador installed) runs this
+            once and hands you the resulting JSON — no RTL regeneration involved,
+            just a format conversion:
+
+            ```
+            matador export-model-json --backend vanilla_gp_tiled \\
+                --model path/to/TM_TMIR_....yaml -o my_model.json
+            ```
+
+            With that JSON in hand (verified end to end: exported this way, then
+            built and simulated from a completely standalone copy of this `sim/`
+            directory with no matador on the Python path — it works):
 
             ```
             cd sim

@@ -328,6 +328,22 @@ in one continuous run, and prints the exact `iverilog` command to compile
 and run it — a real, checkable demonstration that the hardware reprograms
 correctly with your own models, not just a single one.
 
+**Handing a `vanilla_gp_tiled` bundle to someone without matador installed**
+(e.g. an RTL engineer who only has the exported `RTL/` folder): its
+`sim/gen_vectors.py` builds new test vectors standalone, but it can't read a
+TMIR file directly — only its own plain JSON schema. Export that JSON
+yourself first:
+
+```bash
+matador export-model-json --backend vanilla_gp_tiled \
+    --model /work/TMIR/<model_name>/<model>.yaml \
+    -o /work/vanilla_gp_tiled/RTL/sim/<model_name>.json
+```
+
+Then they run `python3 gen_vectors.py combined <model_name>.json ...` from
+`sim/` with no matador install needed at all — see the generated
+`RTL/README.md` § 3 for the exact commands.
+
 ---
 
 ## Step 9 — Emulate (no simulator required)
