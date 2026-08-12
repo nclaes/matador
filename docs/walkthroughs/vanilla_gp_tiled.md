@@ -18,9 +18,17 @@ run).
    without regenerating the RTL, and without them needing matador
    installed at all.
 
+Every stage — booleanisation, training, RTL generation, and test-vector
+generation — has real, user-facing configuration knobs, not just the
+handful of fields shown in the main example. This walkthrough calls those
+out explicitly as they come up (**"Configuration knobs"** boxes), explains
+*why* each one exists and what trade-off it controls, and proves the less
+obvious ones (how many models, how many test vectors) actually work with
+real commands and real output, not just description.
+
 If you just want the command reference, see [Usage.md](../Usage.md). This
-page is the "why does it say that" narrative version, aimed at someone
-doing this for the first time.
+page is the "why does it say that, and what else could I set here" narrative
+version, aimed at someone doing this for the first time.
 
 ---
 
@@ -94,6 +102,50 @@ Booleanizing /work/raw/sports.npz -> sports_{train,test}.txt
   5625 raw features -> 5625 Boolean bits
 ```
 
+### Configuration knobs — booleanisation
+
+Every field below belongs to `FeatureEncoderSpec` / `BooleanisationConfig`
+(`matador/config/schema.py`) — either as `default_encoder:` (applied to
+every raw column not otherwise listed) or per-column inside a `features:`
+list (`column: <int or "lo-hi">` + the same encoder fields, for when
+different columns of one dataset need different treatment).
+
+| Field | Applies to | What it controls |
+|---|---|---|
+| `encoder` | all | `thermometer`, `threshold`, `onehot`, or `passthrough` — see below |
+| `bits` | `thermometer` | How many Boolean bits represent one raw column |
+| `quantile` | `thermometer` | Fit thresholds from the *training split's own* value distribution, instead of a fixed range |
+| `range` | `thermometer` | Explicit `(min, max)` instead of `quantile` — use when you know the true bounds (e.g. a sensor's datasheet range) |
+| `bins` | `thermometer` | Explicit threshold list, for full manual control over where each bit fires |
+| `threshold` | `threshold` | The single cutoff value (raw value ≥ threshold → 1) |
+| `categories` | `onehot` | Explicit category list (otherwise inferred from the training split) |
+| `test_size` / `seed` / `stratify` | whole config | Only relevant when `raw_npz` isn't pre-split into train/test — controls the random split matador performs itself |
+
+**The four encoders:**
+- **`thermometer`** — `bits` monotonically-increasing 1s below a value, 0s above (or vice versa depending on convention); the standard choice for ordinal/continuous data, since it preserves ordering (a higher raw value differs from a lower one by strictly more set bits, which is friendly to a Tsetlin Machine's conjunctive-clause structure).
+- **`threshold`** — a single bit, 1 raw column → 1 Boolean bit. The coarsest possible encoding; used throughout this walkthrough's unverified-recipe datasets specifically to keep the demo's feature/literal count small.
+- **`onehot`** — one bit per category, exactly one set; for genuinely categorical (non-ordinal) columns, where a thermometer's implied ordering would be meaningless.
+- **`passthrough`** — the raw column is already 0/1; no encoding applied.
+
+**Design rationale — why bit width matters more here than in most ML
+pipelines:** a Tsetlin Machine's clauses operate on individual Boolean
+*literals* (`n_literals = 2 × n_features` — one positive and one negated
+literal per Boolean feature, the standard TM convention). Every bit you add
+to the encoding is a real literal a real clause has to evaluate, and — once
+you reach Step 3 — a real slice of `tile_mem` BRAM that has to physically
+exist on the FPGA (`tile_mem` scales linearly with `features_padded`). So
+the encoder isn't just a data-representation choice, it's a direct hardware
+sizing choice: more bits generally means more discriminative power *and* a
+proportionally bigger, slower-to-reprogram core. This is exactly why this
+walkthrough downgrades `sports` from the default 8-bit thermometer skeleton
+(45,000 bits) to a 1-bit threshold (5625 bits) — not because 8-bit is wrong,
+but because this demo doesn't need that much resolution to prove the
+pipeline works, and a smaller core reprograms and simulates faster.
+`quantile: true` is the default recommendation for unknown-range data
+(genomic/sensor data rarely comes with documented bounds) since it adapts
+to whatever the training split actually contains, rather than silently
+clipping outliers against a wrong guessed range.
+
 Train it (a small clause count / one epoch — this is a demo, not a tuned
 model):
 
@@ -130,6 +182,23 @@ about the *pipeline*, not model quality. Increase `clauses`/`epochs` for a
 real model. (This result is exactly reproducible — a second, independent run
 with the same seed landed on 55.70% again, byte-for-byte.)
 
+### Configuration knobs — training
+
+Every field below is `TrainingConfig` (`matador/config/schema.py`):
+
+| Field | What it controls | Design rationale |
+|---|---|---|
+| `tm_type` | `vanilla` or `coalesced` TM variant | Coalesced shares clause structure across classes (fewer total parameters); vanilla gives each class its own independent clause bank. This walkthrough uses `vanilla` throughout, matching `vanilla_gp_tiled`'s architecture. |
+| `clauses` | Clauses **per class**, must be even | `n_clauses_total = classes × clauses` — this is what feeds `max_clauses_total` in Step 3. Must be even because a TM splits each class's clause bank exactly in half: one half votes *for* the class (positive polarity), one half votes *against* it (negative polarity) — an odd count can't split evenly. |
+| `classes` | Number of output classes | Must match the booleanized data's label range exactly. |
+| `features` | Number of Boolean input bits | Must match the booleanized data's column count exactly (validated against `train_data`/`test_data` at load time). |
+| `s` | Specificity | Controls how aggressively clauses specialize on the training data — higher `s` produces more specific (more literals included, tighter-fitting) clauses; lower `s` produces coarser, more general ones. This is the main clause-complexity/generalization knob. |
+| `T` | Voting threshold | Clamps the summed clause vote before it drives the learning-feedback probability — a standard Tsetlin Machine mechanism, not matador-specific. Larger `T` requires a larger margin of consistent votes before feedback saturates. |
+| `epochs` | Training passes over the data | More epochs generally improve accuracy up to a point, at linear cost in training time. |
+| `max_included_literals` | Cap on literals per clause | Validated against `features × 2` at config-load time — a config with `max_included_literals` above that limit is rejected outright (a real bug this walkthrough's own `examples/paper_reproduction/mammographic_training_config.yaml` hit and had to be fixed for). Caps clause complexity (regularization, similar in spirit to `s`) **and** directly bounds the RTL's per-clause literal-evaluation width, so it's a hardware area knob too, not just a training one. |
+| `seed` | RNG seed | Threaded into both the TM's own weight initialization/tie-breaking *and* (since the fix described in Step 4) which test rows get embedded as this model's self-verification vectors — so the same seed reproduces the whole pipeline's output byte-for-byte, as demonstrated above. |
+| `model_name` | Output namespace | `matador train` writes to `<output_dir>/TMIR/<model_name>/`, defaulting to `train_data`'s filename stem (e.g. `sports_train.txt` → `sports`) if not given. This is exactly why `sports` and `statlog` (Step 2) can be trained into the same `/work` directory without colliding. |
+
 ---
 
 ## Step 2 — Train `statlog` (verified recipe)
@@ -152,7 +221,17 @@ Booleanizing /work/raw/statlog.npz -> statlog_{train,test}.txt
 (18 raw features × a 16-bit quantile thermometer, per `data/Raw_Data_Bank.yaml`'s
 recorded default for this dataset — `matador registry` shows the same
 `{encoder: thermometer, bits: 16, quantile: true}` for anyone who wants to
-double-check.)
+double-check. This is the same `bits`/`quantile` knobs from Step 1's
+configuration table, just tuned differently: `statlog`'s 18 raw features are
+genuine continuous measurements with a verified, working 16-bit resolution,
+versus `sports`'s deliberately-coarsened 1-bit demo encoding.)
+
+A verified recipe is not a locked one — it's simply matador's own
+best-known `BooleanisationConfig` for that dataset, stored in
+`data/Raw_Data_Bank.yaml`. You can always override it with your own
+`--config` file (the same `default_encoder`/`features` shape shown for
+`sports` above) even for a "yes" dataset; `matador booleanize --dataset X`
+without `--config` is the convenience path, not the only path.
 
 ```yaml
 # /work/statlog_train.yaml
@@ -255,9 +334,60 @@ capacity fields, not `model_path`, are what the synthesized core actually
 enforces. Either model (or any model within capacity) can be loaded at
 runtime regardless of which one `generate` happened to be pointed at.
 
+### Configuration knobs — RTL generation
+
+Every field below is `GPTiledAcceleratorConfig`
+(`matador/backends/gp_tiled/config.py`):
+
+| Field | Default | What it controls |
+|---|---|---|
+| `target_fpga` | — (required) | Device key into a small built-in BRAM-bit table (`xc7z020`, `xcku040` today — see `fpga_budget.FPGA_BRAM_BITS`). Any string is accepted; unknown devices require `bram_bits_budget` explicitly. |
+| `bram_bits_budget` | `None` | Explicit override of the target device's total on-chip Block RAM, in bits — use this for a device not in the built-in table. |
+| `feat_slice` | 32 | Features evaluated **per clock cycle**. |
+| `clause_slice` | 32 | Clauses evaluated **per clock cycle**. |
+| `max_features` | — (required) | Compile-time ceiling on `n_features` for *any* model this bitstream will ever load. |
+| `max_clauses_total` | — (required) | Compile-time ceiling on `n_clauses_total` (`classes × clauses`) for any loaded model. |
+| `max_classes` | 32 | Compile-time ceiling on `n_classes`. Negligible BRAM cost (doesn't factor into the device-fit check below), but still hard-capped at 255 by the protocol (see below). |
+| `axis_data_width` | 32 (fixed) | AXI-Stream `TDATA` width. Only 32 is currently supported — the vendored packet encoder hardcodes this. |
+| `fifo_depth` | 16 | Input FIFO depth in beats; must be a power of 2. |
+
+**Design rationale — why capacity is checked against real device BRAM, not
+arbitrary limits:** `tile_mem` — the only capacity-scaling resource that
+matters here — is sized as `2 × features_padded × clauses_padded` bits
+(the same "2×" positive/negated-literal convention from Step 1's booleanisation
+rationale, now showing up again as a hardware storage cost). `matador
+generate` checks that figure against **75% of the target device's total
+Block RAM** (`fpga_budget.TILE_MEM_BRAM_FRACTION`), not 100% — the
+remaining quarter is deliberately reserved for the input FIFO and any other
+on-chip logic sharing the same BRAM pool, so a config that "just barely
+fits" on paper doesn't actually fail at synthesis time once real place-and-route
+logic is added. This is exactly the check that caught `xc7z020` being too
+small above, before any RTL was even written.
+
+**Design rationale — `feat_slice`/`clause_slice` is a latency/area
+trade-off, independent of the BRAM story:** these control how many
+features/clauses the core evaluates per clock cycle, i.e. how many rounds
+of computation one inference takes. Smaller slices mean more clock cycles
+per inference (higher latency) but less parallel comparison logic (smaller
+LUT/DSP footprint); larger slices are the reverse. Unlike `tile_mem`, this
+doesn't change *storage*, so it's tunable somewhat independently of the
+BRAM-fit decision above — a design targeting minimum latency and a design
+targeting minimum logic area would pick different `feat_slice`/`clause_slice`
+values for the identical `max_features`/`max_clauses_total`.
+
+**Hard protocol limits worth knowing about**, all enforced at config-validation
+time (`matador/backends/gp_tiled/tmir_bridge.py`): the `CMD_LOAD` packet
+header encodes `n_feat_slices` and `n_clause_slices` as 8-bit fields (max
+255 each — so `max_features ≤ 255 × feat_slice`, `max_clauses_total ≤ 255 ×
+clause_slice`), `n_classes` as an 8-bit field (max 255), and
+`n_clauses_total` itself as a 16-bit field (max 65535). None of these are
+reachable by accident at the scale of this walkthrough's models, but they're
+the reason `max_classes` has a hard ceiling regardless of how much BRAM
+headroom you have.
+
 ---
 
-## Step 4 — Prove it actually reprograms, with both real models (iverilog *and* Verilator)
+## Step 4 — Prove it actually reprograms, with real models (iverilog *and* Verilator)
 
 ```yaml
 # /work/reprogram_config.yaml
@@ -378,6 +508,12 @@ one synthesized core. This is what "runtime-reprogrammable" actually means
 in practice: no resynthesis between the two `LOAD` packets, just a new AXI-
 Stream burst.
 
+Each output beat's `data` word is either a LOAD ack (see the box after
+[Step 3](#configuration-knobs--rtl-generation) — top byte `0xA5`, status
+byte, then a 16-bit tile count) or a prediction (a small class index) — the
+two are unambiguous because ack words are always ≥ `0xA5000000`
+(2.77 billion), far larger than any real class index.
+
 **Verilator, run against the exact same stimulus/expected files**, to
 directly answer "does the reprogram suite work under both simulators":
 
@@ -407,6 +543,98 @@ To view it: `bash sim/waves.sh tb_reprogram_suite` (see
 [GeneratedOutputs.md](../GeneratedOutputs.md) and the generated
 `RTL/README.md` § 2 for how to read the waveform against
 `reprogram_manifest.txt`).
+
+### Configuration knobs — reprogram-suite (how many models, how many vectors)
+
+Every field below is `ReprogramStepConfig`/`ReprogramSuiteConfig`
+(`matador/backends/gp_tiled/reprogram_config.py`):
+
+| Field | Scope | What it controls |
+|---|---|---|
+| `steps` | whole config | An ordered list of `{model, ...}` entries — **one entry per model**, unlimited (only validated as non-empty). Each model just has to individually fit the bitstream's compile-time capacity from Step 3. |
+| `model` | per step | Path to that step's TMIR `.yaml`/`.yml`/`.npz`. |
+| `vectors` | per step | A raw bit-vector file, one test vector per line — full manual control over exactly which inputs get exercised. |
+| `dataset` | per step | A booleanized `*_test.txt`-shaped file (label column dropped) — point at real held-out data instead of hand-written vectors. |
+| `n_samples` | per step, with `dataset` | Subsample this many rows (seeded, reproducible). Omit it to use **every** row in the file. |
+| `seed` | per step | Subsampling seed for `n_samples`. |
+| `name` | per step | Display name in `reprogram_manifest.txt`; defaults to the model file's stem. |
+
+If neither `vectors` nor `dataset` is given for a step (as above), it falls
+back to that model's own embedded `verification.test_vectors` — fixed at
+exactly 10 vectors, chosen at *training* time (round-robin across classes,
+as described above), not adjustable per reprogram-suite run. For anything
+beyond that lightweight built-in self-check — more vectors, specific inputs
+you care about, or real held-out accuracy-adjacent coverage — use `dataset:`
+/`n_samples:` or `vectors:` instead.
+
+**Proof this scales past two models and past the fixed 10-vector default,**
+run for real against the exact same synthesized bitstream from Step 3 (no
+regeneration needed — this is the same "add models without touching the
+RTL" property demonstrated in Step 5, just via `reprogram-suite` instead of
+`export-model-json`):
+
+```yaml
+# /work/reprogram_config_3step.yaml
+steps:
+  - model: /work/TMIR/sports/TM_TMIR_Clauses_20_s_value_5_T_value_15_epochs_1_max_literals_32.yaml
+    # no dataset/vectors -> embedded default, 10 vectors
+  - model: /work/TMIR/statlog/TM_TMIR_Clauses_20_s_value_5_T_value_15_epochs_2_max_literals_32.yaml
+    dataset: /work/booleanised/statlog_test.txt
+    n_samples: 5
+    seed: 7
+  - model: /work/TMIR/human_activity/TM_TMIR_Clauses_20_s_value_5_T_value_15_epochs_2_max_literals_32.yaml
+    # no dataset/vectors -> embedded default, 10 vectors
+```
+
+```bash
+matador reprogram-suite --backend vanilla_gp_tiled \
+    --config /work/vanilla_gp_tiled.yaml \
+    --reprogram-config /work/reprogram_config_3step.yaml
+```
+
+```
+Building reprogram suite for vanilla_gp_tiled at /work/vanilla_gp_tiled/RTL (3 step(s))
+...
+step 0: model='TM_TMIR_..._sports...'      vectors from: this model's own embedded verification.test_vectors
+  beat 0: LOAD ack ... beat 10: vector[9] -> expected_class 10
+
+step 1: model='TM_TMIR_..._statlog...'     vectors from dataset: /work/booleanised/statlog_test.txt
+  beat 11: LOAD ack
+  beat 12: vector[0] -> expected_class 2
+  beat 13: vector[1] -> expected_class 1
+  beat 14: vector[2] -> expected_class 3
+  beat 15: vector[3] -> expected_class 3
+  beat 16: vector[4] -> expected_class 1     <- only 5 vectors, exactly n_samples: 5
+
+step 2: model='TM_TMIR_..._human_activity...' vectors from: this model's own embedded verification.test_vectors
+  beat 17: LOAD ack ... beat 27: vector[9] -> expected_class 3
+```
+
+```bash
+iverilog -g2001 -Wall -Wno-timescale -o sim/tb_reprogram_suite \
+    src/axis_fifo.v src/clause_eval.v src/tile_mem.v src/score_acc_rt.v src/argmax_rt.v src/tm_accel_gp.v \
+    tb/tb_reprogram_suite.v
+(cd sim && vvp tb_reprogram_suite)
+```
+
+```
+PASS beat[0]:  data=a5000840 last=1     <- sports LOAD ack
+PASS beat[10]: data=0000000a last=1     <- sports' last (10th) prediction
+PASS beat[11]: data=a500001b last=1     <- statlog LOAD ack
+PASS beat[12]: data=00000002 last=0
+PASS beat[13]: data=00000001 last=0
+PASS beat[14]: data=00000003 last=0
+PASS beat[15]: data=00000003 last=0
+PASS beat[16]: data=00000001 last=1     <- statlog's LAST beat is vector[4], only 5 vectors this time
+PASS beat[17]: data=a5000048 last=1     <- human_activity LOAD ack (info=0x0048=72 tiles)
+PASS beat[27]: data=00000003 last=1     <- human_activity's 10th and final prediction
+tb_reprogram_suite: ALL TESTS PASSED (28 beats checked)
+```
+
+28 beats total: `(1 + 10) + (1 + 5) + (1 + 10)` — three models, one of them
+with an explicitly-controlled 5-vector sample instead of the default 10, all
+reprogrammed and checked in one continuous run on the one bitstream built
+back in Step 3.
 
 ---
 
@@ -549,17 +777,94 @@ own model, don't mistake `reprogram-suite`/`gen_vectors.py --random`
 passing for evidence of real-world accuracy. Test against real held-out
 data (`matador validate`) for that.
 
+### Configuration knobs — standalone test-vector generation (no matador at all)
+
+`gen_vectors.py` (`matador/backends/gp_tiled/vendor/gen_vectors.py`) is
+copied verbatim into every generated bundle's `RTL/sim/`, stdlib-only, with
+zero matador imports — everything below works on a machine with nothing but
+Python 3 and the exported `.json` model file(s).
+
+**One model at a time — `combined` subcommand:**
+
+| Flag | What it controls |
+|---|---|
+| `model` (positional) | The exported model JSON (`matador export-model-json`'s output). |
+| `vectors` (positional, optional) | A text file of real feature vectors — omit and use `--random` instead. |
+| `--random` | Generate `-n` random feature vectors instead of reading a file. |
+| `-n` | How many random vectors (default 10) — this is the standalone equivalent of a reprogram step's vector count. |
+| `--seed` | Random seed for `--random` (default 0) — reproducible, same idea as `ReprogramStepConfig.seed`. |
+| `-o` | Output `.memh` stimulus path. |
+| `--expected` | Also write expected ack+prediction beats, for a self-checking testbench. |
+| `--testbench` | Also emit a ready-to-compile Verilog testbench (requires `--expected`). |
+
+**Multiple models, fully standalone — `sequence` subcommand:** the direct,
+matador-free equivalent of `reprogram-suite`'s `steps:` list from Step 4 —
+same idea (unlimited models, per-step vector control), expressed as a plain
+JSON manifest instead of a matador config file:
+
+```json
+[
+  {"model": "statlog_model.json", "random": true, "n": 4, "seed": 11},
+  {"model": "human_activity_model.json", "random": true, "n": 3, "seed": 22}
+]
+```
+
+```bash
+python3 gen_vectors.py sequence manifest.json \
+    -o seq_stim.memh --expected seq_exp.memh --testbench tb_seq.v
+```
+
+Run for real (same standalone, no-matador directory as above, plus a second
+exported model):
+
+```
+  step 0: model='TM_TMIR_..._statlog...' (4 classes, 20 clauses/class) -- 4 vector(s), predictions=[1, 2, 1, 1]
+  step 1: model='TM_TMIR_..._human_activity...' (6 classes, 20 clauses/class) -- 3 vector(s), predictions=[0, 0, 0]
+wrote 6436 words across 2 reprogram step(s) -> seq_stim.memh
+wrote 9 expected beats -> seq_exp.memh
+```
+
+```bash
+iverilog -g2001 -Wall -Wno-timescale -o tb_manifest \
+    ../src/axis_fifo.v ../src/clause_eval.v ../src/tile_mem.v \
+    ../src/score_acc_rt.v ../src/argmax_rt.v ../src/tm_accel_gp.v \
+    tb_seq.v
+vvp tb_manifest
+```
+
+```
+PASS beat[0]: data=a500001b last=1     <- statlog LOAD ack
+PASS beat[1]: data=00000001 last=0
+PASS beat[2]: data=00000002 last=0
+PASS beat[3]: data=00000001 last=0
+PASS beat[4]: data=00000001 last=1     <- only 4 vectors, exactly n: 4
+PASS beat[5]: data=a5000048 last=1     <- human_activity LOAD ack
+PASS beat[6]: data=00000000 last=0
+PASS beat[7]: data=00000000 last=0
+PASS beat[8]: data=00000000 last=1     <- only 3 vectors, exactly n: 3
+tb_manifest: ALL TESTS PASSED (9 beats checked)
+```
+
+9 beats = `(1+4) + (1+3)` — two models, independently-sized random vector
+batches, checked with `gen_vectors.py` alone. Every "how many models / how
+many vectors" knob described for `reprogram-suite` in Step 4 has a
+standalone equivalent here — the two tools share the same underlying
+packet encoder (`tm_emulator.py`'s `encode_load_packet`/`encode_infer_packet`),
+just invoked from matador's config-driven CLI on one side and a plain JSON
+manifest on the other.
+
 ---
 
 ## Summary — what changed at each stage
 
 | Stage | Command | What it produced | What you'd change for your own data |
 |---|---|---|---|
-| 1 | `matador booleanize --show-recipe` then `--config` | `sports_{train,test}.txt`, 5625 bits, 19 classes | The encoder (`threshold` vs `thermometer`, bit width) — this dataset has no verified default, so you're expected to tune it |
-| 2 | `matador booleanize --dataset statlog` | `statlog_{train,test}.txt`, 288 bits, 4 classes | Nothing — verified datasets just work |
-| 3 | `matador generate --backend vanilla_gp_tiled` | `RTL/` sized for the *larger* of your models | `max_features`/`max_clauses_total`/`max_classes`/`target_fpga` — set these to your largest anticipated model, not any one model's exact shape |
-| 4 | `matador reprogram-suite` | A testbench proving multiple real models reprogram correctly on one core, checked under both iverilog and Verilator | The `steps:` list — one entry per model you want to prove reprogramming across |
-| 5 | `matador export-model-json` | A plain JSON file, usable with zero matador install | Nothing about the RTL — this only ever produces a JSON file, the bitstream is untouched |
+| 1 | `matador booleanize --show-recipe` then `--config` | `sports_{train,test}.txt`, 5625 bits, 19 classes | The encoder (`threshold` vs `thermometer`, bit width, `quantile`/`range`/`bins`) — this dataset has no verified default, so you're expected to tune it |
+| 1 | `matador train` | `sports`'s TMIR | `clauses`/`s`/`T`/`epochs`/`max_included_literals`/`seed` — the model-quality and RTL-area knobs |
+| 2 | `matador booleanize --dataset statlog` | `statlog_{train,test}.txt`, 288 bits, 4 classes | Nothing required — verified datasets just work, but `--config` can still override the default recipe |
+| 3 | `matador generate --backend vanilla_gp_tiled` | `RTL/` sized for the *larger* of your models | `max_features`/`max_clauses_total`/`max_classes`/`target_fpga`/`feat_slice`/`clause_slice` — set the capacity fields to your largest anticipated model, tune the slice widths for your latency/area target |
+| 4 | `matador reprogram-suite` | A testbench proving multiple real models reprogram correctly on one core, checked under both iverilog and Verilator | The `steps:` list (any number of models) and, per step, `vectors:`/`dataset:`/`n_samples:`/`seed:` (any number/choice of test vectors, or the 10-vector embedded default) |
+| 5 | `matador export-model-json` + `gen_vectors.py` | A plain JSON file, usable with zero matador install | Nothing about the RTL — this only ever produces a JSON file, the bitstream is untouched. `gen_vectors.py combined -n`/`--seed` or `sequence`'s manifest give the same models/vectors control fully standalone |
 
 See also: [Usage.md](../Usage.md) for the command reference, and
 [GeneratedOutputs.md](../GeneratedOutputs.md) for what every file in
