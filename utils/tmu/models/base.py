@@ -19,11 +19,11 @@ import typing
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from utils.tmu.weight_bank import WeightBank
-from utils.tmu.clause_bank.clause_bank import ClauseBank
-from utils.tmu.clause_bank.clause_bank_cuda import ClauseBankCUDA
-from utils.tmu.clause_bank.clause_bank_sparse import ClauseBankSparse
-from utils.tmu.util.sparse_clause_container import SparseClauseContainer
+from tmu.weight_bank import WeightBank
+from tmu.clause_bank.clause_bank import ClauseBank
+from tmu.clause_bank.clause_bank_cuda import ClauseBankCUDA
+from tmu.clause_bank.clause_bank_sparse import ClauseBankSparse
+from tmu.util.sparse_clause_container import SparseClauseContainer
 
 _LOGGER = logging.getLogger(__name__)
 

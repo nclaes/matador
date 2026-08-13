@@ -28,8 +28,25 @@ current_dir = pathlib.Path(__file__).parent
 source_dir = current_dir.joinpath("src")
 header_dir = current_dir.joinpath("include")
 
-HEADERS = ["ClauseBank.h", "Tools.h", "WeightBank.h", "ClauseBankSparse.h"]
-SOURCES = ["ClauseBank.c", "Tools.c", "WeightBank.c", "ClauseBankSparse.c"]
+HEADERS = [
+    "ClauseBank.h", "Tools.h", "WeightBank.h", "ClauseBankSparse.h",
+    # fast_rand_seed.h was missing: clause_bank.py calls lib.pcg32_seed()
+    # directly (not through the fast_rand() macro), so cffi needs its
+    # prototype in cdef() to expose it at all -- without this, the build
+    # succeeded but failed at *call* time with "cffi library ... has no
+    # function ... named 'pcg32_seed'", even after fixing the SOURCES gap
+    # below made the function actually get compiled in.
+    "fast_rand_seed.h",
+]
+# random/pcg32_fast.c and random/xorshift128.c were missing from this list --
+# Tools.c's fast_rand() macro expands to pcg32_fast() (see include/fast_rand.h),
+# so without pcg32_fast.c the extension built but failed to *load* with
+# "undefined symbol: pcg32_fast". xorshift128.c is the other RNG backend
+# declared in the same header and included alongside it for the same reason.
+SOURCES = [
+    "ClauseBank.c", "Tools.c", "WeightBank.c", "ClauseBankSparse.c",
+    "random/pcg32_fast.c", "random/xorshift128.c",
+]
 
 header_content = '\n'.join([header_dir.joinpath(x).open("r").read() for x in HEADERS])
 source_content = '\n'.join([source_dir.joinpath(x).open("r").read() for x in SOURCES])

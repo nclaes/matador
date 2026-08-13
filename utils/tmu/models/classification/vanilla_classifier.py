@@ -18,10 +18,10 @@
 import typing
 from collections import defaultdict
 
-from utils.tmu.models.base import MultiClauseBankMixin, MultiWeightBankMixin, TMBaseModel
-from utils.tmu.util.encoded_data_cache import DataEncoderCache
-from utils.tmu.util.statistics import MetricRecorder
-from utils.tmu.weight_bank import WeightBank
+from tmu.models.base import MultiClauseBankMixin, MultiWeightBankMixin, TMBaseModel
+from tmu.util.encoded_data_cache import DataEncoderCache
+from tmu.util.statistics import MetricRecorder
+from tmu.weight_bank import WeightBank
 import numpy as np
 import logging
 

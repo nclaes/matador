@@ -18,9 +18,9 @@ import typing
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from utils.tmu.models.base import MultiWeightBankMixin, SingleClauseBankMixin, TMBaseModel
-from utils.tmu.util.encoded_data_cache import DataEncoderCache
-from utils.tmu.weight_bank import WeightBank
+from tmu.models.base import MultiWeightBankMixin, SingleClauseBankMixin, TMBaseModel
+from tmu.util.encoded_data_cache import DataEncoderCache
+from tmu.weight_bank import WeightBank
 import numpy as np
 
 

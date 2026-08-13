@@ -23,16 +23,16 @@
 # https://arxiv.org/abs/1905.09688
 import tmu.tools
 from tmu.tmulib import ffi, lib
-from utils.tmu.tools import BenchmarkTimer
-from utils.tmu.clause_bank.clause_bank import ClauseBank
-from utils.tmu.clause_bank.base_clause_bank import BaseClauseBank
+from tmu.tools import BenchmarkTimer
+from tmu.clause_bank.clause_bank import ClauseBank
+from tmu.clause_bank.base_clause_bank import BaseClauseBank
 import hashlib
 import numpy as np
 import logging
 import pathlib
 import tempfile
 
-from utils.tmu.util.cuda_profiler import CudaProfiler
+from tmu.util.cuda_profiler import CudaProfiler
 
 current_dir = pathlib.Path(__file__).parent
 _LOGGER = logging.getLogger(__name__)

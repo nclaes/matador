@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv*/
+
+# tmu C extension build artifacts (rebuild with `make tmu-build`)
+utils/tmu/tmulib.c
+utils/tmu/tmulib.o
+utils/tmu/*.so
+
+# Simulation outputs
+*.vcd
+*.vvp
+obj_dir/
+sim/verilator_build/

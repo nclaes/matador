@@ -19,9 +19,9 @@
 
 # This code implements the Convolutional Tsetlin Machine from paper arXiv:1905.09688
 # https://arxiv.org/abs/1905.09688
-from utils.tmu.tmulib import ffi, lib
-import utils.tmu.tools
-from utils.tmu.clause_bank.base_clause_bank import BaseClauseBank
+from tmu.tmulib import ffi, lib
+import tmu.tools
+from tmu.clause_bank.base_clause_bank import BaseClauseBank
 
 import numpy as np
 

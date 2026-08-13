@@ -1,0 +1,166 @@
+"""coal_tm — CLI for the Coalesced TM RTL flow.
+
+Subcommands:
+  train      Train a TMCoalescedClassifier and export TAs.txt/weights.txt.
+  generate   Generate RTL from an existing TAs.txt/weights.txt pair
+             (independent of `train` -- externally-supplied files work too).
+  testbench  Generate a self-checking testbench + stimulus for a bundle
+             generate() already produced.
+  emulate    Run the standalone Python reference model on a vector or file.
+  sim        Compile and run a generated testbench under iverilog (default)
+             or Verilator.
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy as np
+
+from coal_tm.config import RTLConfig, TrainingConfig
+
+
+def cmd_train(args: argparse.Namespace) -> int:
+    from coal_tm.train import train
+
+    config = TrainingConfig.from_yaml(Path(args.config))
+    result = train(config)
+    print(f"[train] final accuracy: {result.accuracy:.2f}%")
+    return 0
+
+
+def cmd_generate(args: argparse.Namespace) -> int:
+    from coal_tm import rtl
+
+    config = RTLConfig.from_yaml(Path(args.config))
+    result = rtl.generate(config)
+    print(f"[generate] wrote {len(result.sources)} file(s) to {result.rtl_dir}")
+    for path in result.sources:
+        print(f"  {path}")
+    return 0
+
+
+def cmd_testbench(args: argparse.Namespace) -> int:
+    from coal_tm import testbench
+
+    config = RTLConfig.from_yaml(Path(args.config))
+    test_data = Path(args.test_data) if args.test_data else None
+    result = testbench.generate(config, n_vectors=args.n_vectors, test_data=test_data)
+    print(f"[testbench] {result.n_vectors} vector(s), {result.n_blocks} packet(s) each")
+    print(f"  {result.testbench_path}")
+    print(f"  {result.stimulus_path}")
+    print(f"  {result.expected_path}")
+    return 0
+
+
+def cmd_emulate(args: argparse.Namespace) -> int:
+    from coal_tm.emulator import CoalescedEmulator
+
+    config = RTLConfig.from_yaml(Path(args.config))
+    emu = CoalescedEmulator(config.tas, config.weights, config.classes, config.clauses, config.features)
+
+    if args.input:
+        x = np.array([int(v) for v in args.input.split(",")], dtype=np.uint8)
+        result = emu.predict(x)
+        print(f"predicted class: {result.predicted_class}")
+        print(f"class sums: {list(result.class_sums)}")
+        print(f"clauses fired: {int(result.clause_outputs.sum())} / {config.clauses}")
+    elif args.input_file:
+        X = np.loadtxt(args.input_file, dtype=int, ndmin=2)
+        if X.shape[1] == config.features + 1:
+            X = X[:, :-1]
+        predictions, _ = emu.predict_batch(X)
+        for i, p in enumerate(predictions):
+            print(f"row {i}: predicted class {p}")
+    else:
+        print("error: provide --input or --input-file", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_sim(args: argparse.Namespace) -> int:
+    rtl_dir = Path(args.rtl_dir)
+    src_dir = rtl_dir / "src" if (rtl_dir / "src").exists() else rtl_dir
+    tb_path = Path(args.testbench) if args.testbench else rtl_dir / "tb" / "testbench.sv"
+    if not tb_path.exists():
+        print(f"error: testbench not found: {tb_path}", file=sys.stderr)
+        return 1
+
+    sources = [
+        rtl_dir / "TM_Hard_Coded_Clause_Blocks.sv",
+        rtl_dir / "HCB_top.sv",
+        rtl_dir / "TM_top.sv",
+        rtl_dir / "axis_wrapper.sv",
+        rtl_dir / "AXI_Interface.sv",
+        rtl_dir / "new_adder.sv",
+        rtl_dir / "TM_argmax.sv",
+        rtl_dir / "hard_coded_weight.sv",
+    ]
+    missing = [s for s in sources if not s.exists()]
+    if missing:
+        print(f"error: missing generated source(s): {missing}", file=sys.stderr)
+        return 1
+
+    sim_dir = rtl_dir / "sim"
+    if args.verilator:
+        build_dir = sim_dir / "verilator_build"
+        build_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["verilator", "--binary", "--timing", "-Wno-fatal", "-Wno-lint",
+             "--top-module", "testbench", "-Mdir", str(build_dir), str(tb_path), *map(str, sources)],
+            cwd=sim_dir, check=True,
+        )
+        subprocess.run([str(build_dir / "Vtestbench")], cwd=sim_dir, check=False)
+    else:
+        vvp_path = sim_dir / "sim.vvp"
+        subprocess.run(
+            ["iverilog", "-g2012", "-o", str(vvp_path), str(tb_path), *map(str, sources)],
+            check=True,
+        )
+        subprocess.run(["vvp", str(vvp_path)], cwd=sim_dir, check=False)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="coal_tm", description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_train = sub.add_parser("train", help="Train a Coalesced TM and export TAs/weights")
+    p_train.add_argument("--config", required=True, help="Path to a training YAML config")
+    p_train.set_defaults(func=cmd_train)
+
+    p_generate = sub.add_parser("generate", help="Generate RTL from TAs.txt/weights.txt")
+    p_generate.add_argument("--config", required=True, help="Path to an RTL YAML config")
+    p_generate.set_defaults(func=cmd_generate)
+
+    p_testbench = sub.add_parser("testbench", help="Generate a self-checking testbench")
+    p_testbench.add_argument("--config", required=True, help="Path to an RTL YAML config")
+    p_testbench.add_argument("--n-vectors", type=int, default=10)
+    p_testbench.add_argument("--test-data", default=None, help="Override config's test_data")
+    p_testbench.set_defaults(func=cmd_testbench)
+
+    p_emulate = sub.add_parser("emulate", help="Run the Python reference model")
+    p_emulate.add_argument("--config", required=True, help="Path to an RTL YAML config")
+    p_emulate.add_argument("--input", default=None, help="Comma-separated 0/1 feature vector")
+    p_emulate.add_argument("--input-file", default=None, help="Whitespace-delimited file of rows")
+    p_emulate.set_defaults(func=cmd_emulate)
+
+    p_sim = sub.add_parser("sim", help="Compile and run a generated testbench")
+    p_sim.add_argument("--rtl-dir", required=True, help="The RTL/ directory generate() wrote")
+    p_sim.add_argument("--testbench", default=None, help="Override the default tb/testbench.sv path")
+    p_sim.add_argument("--verilator", action="store_true", help="Use Verilator instead of iverilog")
+    p_sim.set_defaults(func=cmd_sim)
+
+    args = parser.parse_args(argv)
+    try:
+        return args.func(args)
+    except Exception as exc:  # noqa: BLE001 - CLI top-level error boundary
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -35,8 +35,14 @@ module compare #(
 	output logic  signed [WEIGHT_LENGTH - 1:0] c;
 	output logic [INDEX_LENGTH - 1:0] c_i;
     
-    always_comb begin 
-        if(b > a) 
+    // always @(*) instead of always_comb: Icarus Verilog was observed not
+    // reliably re-evaluating this block for every input change when
+    // instantiated through the generate-based compare tree below (some
+    // argmax outputs silently held a stale value from a previous
+    // inference) -- always @(*) is the older, more battle-tested
+    // sensitivity-list construct and does not exhibit this.
+    always @(*) begin
+        if(b > a)
            begin
                 c = b;
                 c_i = b_i;
@@ -58,7 +64,13 @@ module classify #(
     parameter integer TREE_WITH = 2 ** INDEX_LENGTH
 )
 (
-input logic signed [WEIGHT_LENGTH - 1:0] c_sum[CLASS_NUM - 1:0],
+// [CLASS_NUM], not [CLASS_NUM-1:0]: TM_top.sv's class_sums output uses the
+// ascending shorthand ([0:CLASS_NUM-1]); an explicit descending range here
+// connects to it by position, not by index number, silently reversing
+// class order across this port (c_sum[k] read as class_sums[CLASS_NUM-1-k]
+// -- confirmed by tracing both arrays at an argmax event and finding them
+// exact mirror images of each other).
+input logic signed [WEIGHT_LENGTH - 1:0] c_sum[CLASS_NUM],
 input logic its_business_time,
 input logic m00_axis_tready,
 output logic [(C_M00_AXIS_TDATA_WIDTH/8)-1 : 0] m00_axis_tkeep,
@@ -69,38 +81,28 @@ input logic clk,
 input logic rst,
 output logic [C_M00_AXIS_TDATA_WIDTH - 1:0] y
 );
-    logic signed [INDEX_LENGTH - 1:0] index [TREE_WITH - 1:0]; 
-    logic signed [INDEX_LENGTH - 1:0] cmp_index [2 * TREE_WITH - 2:0]; 
-    logic signed [WEIGHT_LENGTH - 1:0] cmp_result [2 * TREE_WITH - 2:0]; 
-    integer sum = 0;
-    generate
-        genvar i,j;
-        for (i = 0; i < TREE_WITH; i = i + 1) begin
-            assign cmp_index[2 ** (INDEX_LENGTH + 1) - 2 - i] = i;
-            if (i < CLASS_NUM) begin
-                assign cmp_result[2 ** (INDEX_LENGTH + 1) - 2 - i] = c_sum[CLASS_NUM - 1 - i];
-            end
-            else begin
-                assign cmp_result[2 ** (INDEX_LENGTH + 1) - 2 - i] = {1'b1,{(WEIGHT_LENGTH - 1){1'b0}}};
-            end
-        end
-        for (i = 0; i < INDEX_LENGTH; i = i + 1) begin
-            for (j = 0; j < 2 ** i; j = j + 1) begin
-                compare #(
-                .WEIGHT_LENGTH(WEIGHT_LENGTH),
-                .INDEX_LENGTH(INDEX_LENGTH)
-                )
-                c(
-                .a(cmp_result[2 * (2 ** (i) + j - 1) + 1]), 
-                .a_i(cmp_index[2 * (2 ** (i) + j - 1) + 1]), 
-                .b(cmp_result[2 * (2 ** (i) + j - 1) + 2]), 
-                .b_i(cmp_index[2 * (2 ** (i) + j - 1) + 2]), 
-                .c(cmp_result[2 ** (i) + j - 1]), 
-                .c_i(cmp_index[2 ** (i) + j - 1])
-                );
+    // Winner index, computed by a flat combinational reduction instead of
+    // the generate-based tree of `compare` instances this replaced: Icarus
+    // Verilog was observed not reliably re-evaluating that deep,
+    // hierarchy-of-always_comb-blocks tree for every c_sum change (some
+    // argmax outputs silently held a stale value from a previous
+    // inference, confirmed via waveform trace) -- Verilator handled the
+    // tree fine, but relying on a simulator-specific quirk either way
+    // isn't acceptable here. Everything downstream of `cmp_index[0]`
+    // (the clocked handshake logic below) is unchanged.
+    logic [INDEX_LENGTH - 1:0] cmp_index [0:0];
+    always @(*) begin : argmax_reduce
+        logic signed [WEIGHT_LENGTH - 1:0] best_val;
+        integer k;
+        best_val = c_sum[0];
+        cmp_index[0] = '0;
+        for (k = 1; k < CLASS_NUM; k = k + 1) begin
+            if (c_sum[k] > best_val) begin
+                best_val = c_sum[k];
+                cmp_index[0] = k[INDEX_LENGTH - 1:0];
             end
         end
-    endgenerate
+    end
     
     logic signed old_its_business_time;
     logic c_stat;

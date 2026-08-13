@@ -1,0 +1,29 @@
+[project]
+name = "coal_tm"
+version = "0.1.0"
+description = "Minimal CLI for the Coalesced Tsetlin Machine RTL flow: train, generate, emulate, test."
+requires-python = ">=3.10"
+dependencies = [
+    # <2: the vendored utils/tmu library relies in several places on
+    # NumPy's pre-2.0 behavior of silently wrapping out-of-range Python
+    # ints when casting to an unsigned dtype (e.g. np.uint32(~0) to build
+    # an all-ones mask) -- NumPy 2.0 made that a hard OverflowError instead.
+    "numpy<2",
+    "scipy",
+    "pyyaml",
+    "pydantic>=2",
+    "cffi",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+coal_tm = "coal_tm.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["coal_tm"]

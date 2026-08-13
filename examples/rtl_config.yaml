@@ -1,0 +1,16 @@
+# Generates Coalesced-TM RTL from an existing TAs.txt/weights.txt pair.
+# Independent of training_config.yaml -- tas/weights can come from
+# `coal_tm train`'s output, or be supplied directly (e.g. TAs.txt/weights.txt
+# already at the repo root).
+output_dir: /work/mnist_model
+tas: /work/mnist_model/TAs.txt
+weights: /work/mnist_model/weights.txt
+classes: 10
+clauses: 200
+features: 784
+bus_width: 64          # must be < features (multiple of 8) -- see README.md
+                       # "Known limitation: bus_width must be less than features"
+                       # for a small model (features <= bus_width), pick a
+                       # narrower bus_width (e.g. 32/16/8) instead
+adder_stages: 1        # must evenly divide `clauses`
+test_data: /work/data/mnist_test.txt   # only needed for `coal_tm testbench`

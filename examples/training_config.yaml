@@ -1,0 +1,13 @@
+# Trains a TMCoalescedClassifier and exports TAs.txt/weights.txt into
+# output_dir. See ../README.md for the full walkthrough.
+clauses: 200
+classes: 10
+features: 784
+s: 5.0
+T: 15
+epochs: 10
+max_included_literals: 32
+training_data: /work/data/mnist_train.txt   # <features...> <label>, whitespace-separated
+test_data: /work/data/mnist_test.txt
+output_dir: /work/mnist_model
+seed: 42
