@@ -70,6 +70,42 @@ instead — see `coal_tm validate` for a model-quality check against real
 labels, which is a different question from whether this RTL is correct
 hardware for whatever TAs.txt/weights.txt it was given).
 
+### Opening the waveforms
+
+Both scripts dump a standard VCD, so the same steps work for either file.
+If `gtkwave` isn't already installed: `apt install gtkwave` (Debian/Ubuntu)
+or `brew install gtkwave` (macOS).
+
+    gtkwave tb/iverilog.vcd     # or tb/verilator.vcd
+
+GTKWave opens with the **SST** panel on the left (the design's module
+hierarchy) and an empty waveform pane on the right — no signals are shown
+until you add them:
+
+1. In the SST tree, click `testbench` to select the top-level scope. Its
+   signals (`clk`, `aresetn`, `s00_tvalid`, `s00_tdata`, `m00_tvalid`,
+   `m00_tdata`, ...) appear in the **Signals** panel next to it.
+2. Select the ones you want (click one, or click-drag / ctrl-click for
+   several), then click **Append** (or drag them straight into the
+   waveform pane) to add them to the display.
+3. To see what's happening *inside* the core, expand `testbench > dut`
+   in the SST tree — that's the `axis_wrapper_top` instance — then
+   `dut > tm`, the `Hard_Coded_Inference_Top` instance inside it, which
+   has `HT` (the clause-block pipeline), `add_inst` (the weighted-sum
+   adder), and `classify_inst` (the argmax/output stage) underneath it.
+4. Click the **zoom-to-fit** icon in the toolbar (or `Time > Zoom > Zoom
+   Best Fit`) so the whole run is visible instead of GTKWave's default
+   few-nanosecond window.
+
+A useful signal set for checking one inference end to end, in the order
+they toggle: `s00_tvalid` / `s00_tready` / `s00_tdata` (packets going in),
+`dut.tm.HT.HCB_done` (clause evaluation finished for this vector),
+`dut.tm.add_inst.adder_done` (weighted sum finished), `dut.tm.classify_inst.argmax`
+(argmax fired), and `m00_tvalid` / `m00_tdata` (the predicted class coming
+out). Each should pulse in that order, once per vector, with the vector
+count and `$display` output in the terminal (from the `run_*.sh` output
+above) as the ground truth for which pulse belongs to which vector.
+
 ### A note on model accuracy vs. hardware correctness
 
 A vector passing this testbench means the RTL computed the *same* answer
