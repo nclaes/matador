@@ -60,6 +60,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     print(f"[generate] wrote {len(result.sources)} file(s) to {result.rtl_dir}")
     for path in result.sources:
         print(f"  {path}")
+    print(f"  {result.readme_path}")
     return 0
 
 
@@ -73,6 +74,9 @@ def cmd_testbench(args: argparse.Namespace) -> int:
     print(f"  {result.testbench_path}")
     print(f"  {result.stimulus_path}")
     print(f"  {result.expected_path}")
+    print(f"  {result.run_iverilog_path}")
+    print(f"  {result.run_verilator_path}")
+    print(f"  {result.readme_path}")
     return 0
 
 
@@ -97,23 +101,15 @@ def cmd_emulate(args: argparse.Namespace) -> int:
 
 
 def cmd_sim(args: argparse.Namespace) -> int:
+    from coal_tm.rtl import GENERATED_SOURCES
+
     rtl_dir = Path(args.rtl_dir)
-    src_dir = rtl_dir / "src" if (rtl_dir / "src").exists() else rtl_dir
     tb_path = Path(args.testbench) if args.testbench else rtl_dir / "tb" / "testbench.sv"
     if not tb_path.exists():
         print(f"error: testbench not found: {tb_path}", file=sys.stderr)
         return 1
 
-    sources = [
-        rtl_dir / "TM_Hard_Coded_Clause_Blocks.sv",
-        rtl_dir / "HCB_top.sv",
-        rtl_dir / "TM_top.sv",
-        rtl_dir / "axis_wrapper.sv",
-        rtl_dir / "AXI_Interface.sv",
-        rtl_dir / "new_adder.sv",
-        rtl_dir / "TM_argmax.sv",
-        rtl_dir / "hard_coded_weight.sv",
-    ]
+    sources = [rtl_dir / name for name in GENERATED_SOURCES]
     missing = [s for s in sources if not s.exists()]
     if missing:
         print(f"error: missing generated source(s): {missing}", file=sys.stderr)

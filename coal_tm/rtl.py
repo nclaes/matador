@@ -49,11 +49,29 @@ from coal_tm.config import RTLConfig
 _STATIC_TEMPLATES = ["AXI_Interface.sv", "new_adder.sv", "TM_argmax.sv"]
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "utils" / "RTL_templates"
 
+# The complete set of source files a generated bundle needs to compile,
+# filenames only (relative to RTL/) -- the single source of truth for
+# coal_tm.cli's `sim` command and the standalone run_iverilog.sh/
+# run_verilator.sh scripts coal_tm.testbench writes, so they can't drift
+# out of sync with each other or with what generate() actually produces.
+# The first 5 are regenerated fresh per model (see MODEL_SPECIFIC_SOURCES
+# below); the last 3 are static IP, byte-identical to utils/RTL_templates/
+# every time (see copy_static_templates).
+MODEL_SPECIFIC_SOURCES = [
+    "TM_Hard_Coded_Clause_Blocks.sv",
+    "HCB_top.sv",
+    "TM_top.sv",
+    "axis_wrapper.sv",
+    "hard_coded_weight.sv",
+]
+GENERATED_SOURCES = MODEL_SPECIFIC_SOURCES + list(_STATIC_TEMPLATES)
+
 
 @dataclass
 class RTLArtifacts:
     rtl_dir: Path
     sources: list[Path] = field(default_factory=list)
+    readme_path: Path | None = None
 
 
 def _weight_width(weights: np.ndarray, clauses: int) -> int:
@@ -498,4 +516,7 @@ def generate(config: RTLConfig) -> RTLArtifacts:
 
     sources.extend(copy_static_templates(rtl_dir))
 
-    return RTLArtifacts(rtl_dir=rtl_dir, sources=sources)
+    from coal_tm.readme import write_rtl_readme  # local import: readme.py imports this module
+    readme_path = write_rtl_readme(rtl_dir, config, width, n_blocks)
+
+    return RTLArtifacts(rtl_dir=rtl_dir, sources=sources, readme_path=readme_path)
