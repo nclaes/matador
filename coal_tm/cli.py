@@ -2,6 +2,10 @@
 
 Subcommands:
   train      Train a TMCoalescedClassifier and export TAs.txt/weights.txt.
+  validate   Check TAs.txt/weights.txt predictions against real labeled
+             test vectors via the emulator -- run this before `generate`
+             to catch a bad export or wrong config cheaply, before
+             spending time on RTL.
   generate   Generate RTL from an existing TAs.txt/weights.txt pair
              (independent of `train` -- externally-supplied files work too).
   testbench  Generate a self-checking testbench + stimulus for a bundle
@@ -29,6 +33,20 @@ def cmd_train(args: argparse.Namespace) -> int:
     config = TrainingConfig.from_yaml(Path(args.config))
     result = train(config)
     print(f"[train] final accuracy: {result.accuracy:.2f}%")
+    return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    from coal_tm.validate import validate
+
+    config = RTLConfig.from_yaml(Path(args.config))
+    test_data = Path(args.test_data) if args.test_data else None
+    result = validate(config, n_vectors=args.n_vectors, test_data=test_data)
+
+    for i in range(result.n_vectors):
+        status = "OK" if result.predictions[i] == result.labels[i] else "MISMATCH"
+        print(f"  [{status}] vector {i}: predicted {result.predictions[i]}, label {result.labels[i]}")
+    print(f"[validate] {result.correct}/{result.n_vectors} correct ({result.accuracy:.2f}%)")
     return 0
 
 
@@ -131,6 +149,12 @@ def main(argv: list[str] | None = None) -> int:
     p_train = sub.add_parser("train", help="Train a Coalesced TM and export TAs/weights")
     p_train.add_argument("--config", required=True, help="Path to a training YAML config")
     p_train.set_defaults(func=cmd_train)
+
+    p_validate = sub.add_parser("validate", help="Check TAs/weights predictions against labeled test vectors")
+    p_validate.add_argument("--config", required=True, help="Path to an RTL YAML config")
+    p_validate.add_argument("--n-vectors", type=int, default=20)
+    p_validate.add_argument("--test-data", default=None, help="Override config's test_data")
+    p_validate.set_defaults(func=cmd_validate)
 
     p_generate = sub.add_parser("generate", help="Generate RTL from TAs.txt/weights.txt")
     p_generate.add_argument("--config", required=True, help="Path to an RTL YAML config")

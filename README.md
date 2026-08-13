@@ -13,9 +13,11 @@ Automated ASIC and FPGA design for Tsetlin Machine Accelerators.
 A small, focused toolchain for one accelerator architecture — the
 **Coalesced Tsetlin Machine** (shared clause bank, per-class weighted sum,
 argmax) — nothing else. No GUI, no Vanilla TM, no synthesis/deployment
-flow (those live in `legacy/`, retired but not deleted). Four commands:
-train a model, generate RTL from a trained model's TAs/weights, generate a
-self-checking testbench, and run it under iverilog or Verilator.
+flow (those live in `legacy/`, retired but not deleted). `coal_tm`'s
+commands: train a model, validate its predictions against real labeled
+data (via the emulator, before spending time on RTL), generate RTL from
+TAs/weights, generate a self-checking testbench, run it under iverilog or
+Verilator, and sanity-check a single input without touching RTL at all.
 
 The `4adrian` branch's Coalesced flow existed but didn't actually work
 end-to-end: the vendored `tmu` library couldn't be imported at all under
@@ -29,37 +31,80 @@ that is fixed here — see git log for the specific commits.
 
 ## Quickstart
 
+### Two mount points, and where things actually live
+
+The container has **two separate bind mounts** — knowing which is which
+avoids most path confusion:
+
+| Path in container | What it is | Where it comes from |
+| ------------------ | ---------- | -------------------- |
+| `/workspace` | **This repo**, read-write. Always mounted, no setup needed. Contains `coal_tm/`, `examples/`, and — usefully — a pretrained `TAs.txt`/`weights.txt` at the repo root plus a small real MNIST test sample at `examples/sample_mnist_test.txt`, ready to use with zero setup (see below). The *full* MNIST train+test set is **not** bundled (~105MB — too large to check in); train your own model with your own data if you need one. | `docker-compose.yml`/`Makefile`: the repo directory itself (`..` relative to `docker/`). |
+| `/work` | **Your own stuff** — configs you write, models you train, RTL you generate. Empty by default. | Whatever host directory you pass as `WORK_DIR`; if you don't set it, it defaults to your host's `/tmp` (see `docker-compose.yml`). |
+
+So: source/example files the README and examples reference as
+`/workspace/...` are already there the moment the container starts.
+Anything under `/work/...` is something *you* put there (typically: copy
+one of the example configs in, edit the paths, run `coal_tm` against it) —
+`coal_tm` itself writes its outputs (`TAs.txt`, generated RTL, etc.)
+wherever a config's `output_dir` points, which the examples set to
+`/work/...` precisely so your results land outside the repo.
+
 ```bash
 make build                        # build the dev image (once)
-make shell WORK_DIR=/path/to/data # drop into the container, /work mounted
+make shell WORK_DIR=/path/to/data # drop into the container, /work mounted to /path/to/data on your host
 ```
 
-Inside the container:
+(No data of your own yet? `make shell` with no `WORK_DIR` still works —
+`/work` just falls back to your host's `/tmp`, which is fine for the
+zero-setup walkthrough below.)
+
+### Zero-setup first run, using the repo's own bundled model
+
+`examples/rtl_config.yaml` is pre-filled to match the `TAs.txt`/`weights.txt`
+already checked into the repo root (a pretrained 200-clause, 10-class MNIST
+digit model) and a small bundled real test sample
+(`examples/sample_mnist_test.txt`, 100 rows) — copy it in and run it as-is,
+inside the container:
 
 ```bash
-make tmu-build                    # compile the vendored tmu C extension (once)
+make tmu-build                                        # compile the vendored tmu C extension (once)
+cp examples/rtl_config.yaml /work/rtl_config.yaml
 
-# Train (optional -- skip straight to `generate` if you already have
-# TAs.txt/weights.txt, e.g. the ones checked in at the repo root):
-python3 -m coal_tm.cli train --config /work/training_config.yaml
+# Sanity-check the model's predictions against real labels first --
+# catches a bad/wrong TAs.txt-weights.txt pair before spending time on RTL:
+python3 -m coal_tm.cli validate  --config /work/rtl_config.yaml --n-vectors 20
 
-# Generate RTL from TAs.txt/weights.txt:
-python3 -m coal_tm.cli generate --config /work/rtl_config.yaml
-
-# Generate a self-checking testbench (N vectors, expected outputs computed
-# by the emulator -- not copied from the test data's label column):
+python3 -m coal_tm.cli generate  --config /work/rtl_config.yaml
 python3 -m coal_tm.cli testbench --config /work/rtl_config.yaml --n-vectors 20
+python3 -m coal_tm.cli sim       --rtl-dir /work/mnist_model/RTL
+python3 -m coal_tm.cli sim       --rtl-dir /work/mnist_model/RTL --verilator
+```
 
-# Run it:
-python3 -m coal_tm.cli sim --rtl-dir /work/mnist_model/RTL
-python3 -m coal_tm.cli sim --rtl-dir /work/mnist_model/RTL --verilator
+### Training your own model instead
 
+The full MNIST dataset isn't bundled (see the mount table above), so
+training needs your own boolean `<features...> <label>` data. Copy
+`examples/training_config.yaml`, point `training_data`/`test_data` at
+wherever you put your files under `/work`, and set `clauses`/`classes`/
+`features`/etc. to match:
+
+```bash
+cp examples/training_config.yaml /work/training_config.yaml
+# edit /work/training_config.yaml: training_data/test_data paths, and the
+# model shape fields, for your own dataset
+python3 -m coal_tm.cli train --config /work/training_config.yaml
+# writes /work/mnist_model/TAs.txt and /work/mnist_model/weights.txt --
+# point rtl_config.yaml's tas:/weights: at those to generate RTL from the
+# model you just trained
+```
+
+```bash
 # Sanity-check a single input without touching RTL at all:
 python3 -m coal_tm.cli emulate --config /work/rtl_config.yaml --input "1,0,1,1,0,..."
 ```
 
 See `examples/training_config.yaml` and `examples/rtl_config.yaml` for the
-config schemas (validated — real errors, not silent misbehavior, for
+full config schemas (validated — real errors, not silent misbehavior, for
 things like mismatched file sizes, non-existent paths, or an
 `adder_stages` that doesn't evenly divide `clauses`). In particular, see
 [Known limitation: `bus_width` must be less than `features`](#known-limitation-bus_width-must-be-less-than-features)

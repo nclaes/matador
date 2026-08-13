@@ -1,5 +1,17 @@
 # Trains a TMCoalescedClassifier and exports TAs.txt/weights.txt into
 # output_dir. See ../README.md for the full walkthrough.
+#
+# training_data/test_data below are NOT bundled with this repo -- a real
+# MNIST-scale boolean dataset is too large to check in (the full train+test
+# set is ~105MB). Supply your own <features...> <label> whitespace-
+# separated file(s) at these paths under /work (or wherever you mount your
+# data), matching this config's classes/clauses/features/etc.
+#
+# Don't have your own data handy? examples/rtl_config.yaml uses a
+# pretrained model of this exact shape (TAs.txt/weights.txt already
+# checked into the repo root) plus a small bundled real MNIST test sample
+# (examples/sample_mnist_test.txt) -- skip training entirely and start
+# from `coal_tm validate`/`generate` instead.
 clauses: 200
 classes: 10
 features: 784
