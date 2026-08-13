@@ -235,7 +235,12 @@ def write_hcb_top(path: Path, n_blocks: int, clauses: int) -> None:
             "\t// One more register stage here closes exactly that gap.",
             file=f,
         )
-        print("\tlogic HCB_done_reg;", file=f)
+        # Initialized at declaration (not just via the reset branch below) so
+        # HCB_done -- and everything gated on it, including s00_axis_tready
+        # up in axis_wrapper.sv -- reads as a defined 0 from time 0 in
+        # simulation, instead of X for the handful of ns before the first
+        # posedge actually processes rst.
+        print("\tlogic HCB_done_reg = 1'b0;", file=f)
         print("\talways @(posedge clk) begin", file=f)
         print("\t\tif (rst) begin", file=f)
         print("\t\t\tHCB_done_reg <= 1'b0;", file=f)
@@ -322,7 +327,12 @@ def write_tm_top(path: Path, clauses: int, weight_width: int) -> None:
             "\t// (which would immediately retrigger HCB_done, colliding with the\n"
             "\t// in-flight inference) still gets accepted.", file=f,
         )
-        print("\tlogic [2:0] busy_countdown;", file=f)
+        # Same reasoning as HCB_done_reg's initializer in HCB_top.sv: without
+        # this, busy (and s_axis_tready/s00_axis_tready downstream) reads X
+        # for the first few ns of simulation, before rst has been through a
+        # clock edge -- purely a simulation-waveform nicety, reset already
+        # makes this correct in hardware regardless.
+        print("\tlogic [2:0] busy_countdown = 3'd0;", file=f)
         print("\tlogic busy;", file=f)
         print("\tassign busy = (busy_countdown != 0) || HCB_done;", file=f)
         print("\tassign s_axis_tready = !busy;", file=f)

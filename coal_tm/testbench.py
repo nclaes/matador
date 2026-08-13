@@ -113,7 +113,7 @@ module testbench;
     wire m00_tlast;
     wire [BUS_WIDTH-1:0] m00_tdata;
 
-    integer packet_idx;
+    integer packet_idx = 0;
     integer received = 0;
     integer failures = 0;
 
