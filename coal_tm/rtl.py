@@ -478,6 +478,20 @@ def copy_static_templates(dest_dir: Path) -> list[Path]:
     return copied
 
 
+def _existing_n_vectors(rtl_dir: Path) -> int | None:
+    """If `coal_tm testbench` already ran for this bundle, sim/expected.mem
+    (one line per vector) is still sitting on disk even though this
+    generate() call doesn't touch it -- infer the vector count from it so
+    re-running `generate` alone doesn't wipe the README's "Simulating this
+    bundle" section back to "not generated yet" while tb/sim are still
+    right there, accurate and untouched."""
+    expected_path = rtl_dir / "sim" / "expected.mem"
+    if not expected_path.exists():
+        return None
+    n = sum(1 for line in expected_path.read_text().splitlines() if line.strip())
+    return n or None
+
+
 def generate(config: RTLConfig) -> RTLArtifacts:
     rtl_dir = config.output_dir / "RTL"
     rtl_dir.mkdir(parents=True, exist_ok=True)
@@ -517,6 +531,6 @@ def generate(config: RTLConfig) -> RTLArtifacts:
     sources.extend(copy_static_templates(rtl_dir))
 
     from coal_tm.readme import write_rtl_readme  # local import: readme.py imports this module
-    readme_path = write_rtl_readme(rtl_dir, config, width, n_blocks)
+    readme_path = write_rtl_readme(rtl_dir, config, width, n_blocks, n_vectors=_existing_n_vectors(rtl_dir))
 
     return RTLArtifacts(rtl_dir=rtl_dir, sources=sources, readme_path=readme_path)

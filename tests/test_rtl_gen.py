@@ -236,6 +236,25 @@ def test_readme_reflects_generate_then_testbench(tiny_model, tmp_path):
     assert "ALL 1 VECTORS PASSED" in readme
 
 
+def test_readme_keeps_sim_section_across_a_bare_regenerate(tiny_model, tmp_path):
+    """Regression test: re-running `generate` alone after `testbench` has
+    already run must not wipe the README's "Simulating this bundle"
+    section back to the "Not generated yet" placeholder -- tb/sim are
+    still sitting on disk, untouched, and the README should keep saying so."""
+    config = _make_config(tiny_model, tmp_path)
+    rtl.generate(config)
+    test_data = tmp_path / "test_data.txt"
+    test_data.write_text("1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n")
+    tb_result = testbench.generate(config, n_vectors=1, test_data=test_data)
+    assert "Not generated yet" not in tb_result.readme_path.read_text()
+
+    regen_result = rtl.generate(config)
+    readme = regen_result.readme_path.read_text()
+    assert "Not generated yet" not in readme
+    assert "ALL 1 VECTORS PASSED" in readme
+    assert "Opening the waveforms" in readme
+
+
 def test_sim_scripts_are_executable_and_reference_every_source(tiny_model, tmp_path):
     config = _make_config(tiny_model, tmp_path)
     rtl.generate(config)
