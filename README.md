@@ -99,7 +99,13 @@ python3 -m coal_tm.cli train --config /work/training_config.yaml
 ```
 
 ```bash
-# Sanity-check a single input without touching RTL at all:
+# Sanity-check predictions without touching RTL at all -- reads vectors
+# from the config's own test_data by default (typing out a
+# `features`-long comma-separated vector by hand isn't practical for
+# anything but a toy model):
+python3 -m coal_tm.cli emulate --config /work/rtl_config.yaml --n-vectors 5
+
+# Or check one hand-crafted vector instead:
 python3 -m coal_tm.cli emulate --config /work/rtl_config.yaml --input "1,0,1,1,0,..."
 ```
 

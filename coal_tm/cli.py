@@ -10,7 +10,9 @@ Subcommands:
              (independent of `train` -- externally-supplied files work too).
   testbench  Generate a self-checking testbench + stimulus for a bundle
              generate() already produced.
-  emulate    Run the standalone Python reference model on a vector or file.
+  emulate    Run the standalone Python reference model, on either a single
+             hand-supplied vector (--input) or real vectors read from a
+             text file -- defaulting to the config's own test_data.
   sim        Compile and run a generated testbench under iverilog (default)
              or Verilator.
 """
@@ -75,27 +77,22 @@ def cmd_testbench(args: argparse.Namespace) -> int:
 
 
 def cmd_emulate(args: argparse.Namespace) -> int:
-    from coal_tm.emulator import CoalescedEmulator
+    from coal_tm.emulate import emulate_batch, emulate_single
 
     config = RTLConfig.from_yaml(Path(args.config))
-    emu = CoalescedEmulator(config.tas, config.weights, config.classes, config.clauses, config.features)
 
     if args.input:
         x = np.array([int(v) for v in args.input.split(",")], dtype=np.uint8)
-        result = emu.predict(x)
+        result = emulate_single(config, x)
         print(f"predicted class: {result.predicted_class}")
         print(f"class sums: {list(result.class_sums)}")
         print(f"clauses fired: {int(result.clause_outputs.sum())} / {config.clauses}")
-    elif args.input_file:
-        X = np.loadtxt(args.input_file, dtype=int, ndmin=2)
-        if X.shape[1] == config.features + 1:
-            X = X[:, :-1]
-        predictions, _ = emu.predict_batch(X)
-        for i, p in enumerate(predictions):
-            print(f"row {i}: predicted class {p}")
-    else:
-        print("error: provide --input or --input-file", file=sys.stderr)
-        return 1
+        return 0
+
+    test_data = Path(args.test_data) if args.test_data else None
+    result = emulate_batch(config, n_vectors=args.n_vectors, test_data=test_data)
+    for i, p in enumerate(result.predictions):
+        print(f"row {i}: predicted class {p}")
     return 0
 
 
@@ -168,8 +165,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_emulate = sub.add_parser("emulate", help="Run the Python reference model")
     p_emulate.add_argument("--config", required=True, help="Path to an RTL YAML config")
-    p_emulate.add_argument("--input", default=None, help="Comma-separated 0/1 feature vector")
-    p_emulate.add_argument("--input-file", default=None, help="Whitespace-delimited file of rows")
+    p_emulate.add_argument("--input", default=None, help="Comma-separated 0/1 feature vector (single ad hoc row)")
+    p_emulate.add_argument("--test-data", default=None, help="Override config's test_data (default source of vectors)")
+    p_emulate.add_argument("--n-vectors", type=int, default=None, help="Limit to the first N rows (default: all)")
     p_emulate.set_defaults(func=cmd_emulate)
 
     p_sim = sub.add_parser("sim", help="Compile and run a generated testbench")

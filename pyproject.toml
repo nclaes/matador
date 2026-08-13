@@ -27,3 +27,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["coal_tm"]
+
+[tool.pytest.ini_options]
+# Without this, pytest's default discovery recurses the whole repo --
+# including legacy/, which carries the vendored tmu library's own old
+# test suite (Python 3.8-era, broken under the versions installed here)
+# and fails collection before coal_tm's own tests ever run.
+testpaths = ["tests"]
