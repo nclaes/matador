@@ -379,11 +379,14 @@ values for the identical `max_features`/`max_clauses_total`.
 time (`matador/backends/gp_tiled/tmir_bridge.py`): the `CMD_LOAD` packet
 header encodes `n_feat_slices` and `n_clause_slices` as 8-bit fields (max
 255 each — so `max_features ≤ 255 × feat_slice`, `max_clauses_total ≤ 255 ×
-clause_slice`), `n_classes` as an 8-bit field (max 255), and
-`n_clauses_total` itself as a 16-bit field (max 65535). None of these are
-reachable by accident at the scale of this walkthrough's models, but they're
-the reason `max_classes` has a hard ceiling regardless of how much BRAM
-headroom you have.
+clause_slice`), `n_classes` as an 8-bit field (max 255), `clauses_per_class`
+as a 16-bit field (max 65535 — widened from 8 bits by reclaiming the byte a
+vestigial `threshold` field used to occupy; scores have always been
+unclamped, so that field was retired from the wire protocol entirely, not
+just widened around), and `n_clauses_total` itself as a 16-bit field (max
+65535). None of these are reachable by accident at the scale of this
+walkthrough's models, but they're the reason `max_classes` has a hard
+ceiling regardless of how much BRAM headroom you have.
 
 ---
 

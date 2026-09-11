@@ -15,7 +15,7 @@ separates three distinct sizing concepts:
   * the target FPGA's BRAM budget (target_fpga / bram_bits_budget) — the
     real constraint on how big max_features x max_clauses_total can be.
     tile_mem's bit cost is 2 x features_padded x clauses_padded, essentially
-    independent of max_classes. See matador.backends.gp_tiled.fpga_budget.
+    independent of max_classes. See matador.backends.fpga_budget.
 
 The runtime MODEL geometry (n_classes, clauses_per_class, ... — read from
 the TMIR at model_path) must fit within the configured capacity, checked by
@@ -30,7 +30,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from matador.backends.gp_tiled.fpga_budget import bram_budget_bits
+from matador.backends.fpga_budget import bram_budget_bits
 from matador.backends.gp_tiled.tmir_bridge import (
     HARD_MAX_CLASSES,
     HARD_MAX_CLAUSE_SLICES,
@@ -38,6 +38,11 @@ from matador.backends.gp_tiled.tmir_bridge import (
     HARD_MAX_FEAT_SLICES,
     HARD_MAX_TILES,
 )
+
+# Fraction of a device's total BRAM budget reserved for tile_mem; the rest is
+# left for the input FIFO and any other on-chip logic sharing the same BRAM
+# pool. Not currently user-configurable — tune here if it needs to move.
+TILE_MEM_BRAM_FRACTION = 0.75
 
 
 class GPTiledAcceleratorConfig(BaseModel):
@@ -74,7 +79,7 @@ class GPTiledAcceleratorConfig(BaseModel):
     target_fpga: str = Field(
         description=(
             "Target FPGA device key (e.g. 'xc7z020', 'xcku040' — see "
-            "matador.backends.gp_tiled.fpga_budget.FPGA_BRAM_BITS). Any "
+            "matador.backends.fpga_budget.FPGA_BRAM_BITS). Any "
             "string is accepted; if it isn't a known device, bram_bits_budget "
             "must be set explicitly."
         ),
@@ -83,7 +88,7 @@ class GPTiledAcceleratorConfig(BaseModel):
         default=None,
         description=(
             "Explicit override of the target device's total Block RAM bits. "
-            "Required when target_fpga isn't in fpga_budget.FPGA_BRAM_BITS."
+            "Required when target_fpga isn't in matador.backends.fpga_budget.FPGA_BRAM_BITS."
         ),
     )
 
@@ -156,14 +161,14 @@ class GPTiledAcceleratorConfig(BaseModel):
             )
 
         required_bits = 2 * (max_feat_slices * self.feat_slice) * (max_clause_slices * self.clause_slice)
-        budget_bits = bram_budget_bits(self.target_fpga, self.bram_bits_budget)
+        budget_bits = bram_budget_bits(self.target_fpga, self.bram_bits_budget, TILE_MEM_BRAM_FRACTION)
         if required_bits > budget_bits:
             raise ValueError(
                 f"tile_mem for this config needs {required_bits:,} bits "
                 f"(2 x {max_feat_slices * self.feat_slice:,} features_padded x "
                 f"{max_clause_slices * self.clause_slice:,} clauses_padded), which exceeds the "
                 f"{budget_bits:,}-bit budget for target_fpga={self.target_fpga!r} "
-                f"(device BRAM x fpga_budget.TILE_MEM_BRAM_FRACTION). Reduce max_features/"
+                f"(device BRAM x TILE_MEM_BRAM_FRACTION). Reduce max_features/"
                 f"max_clauses_total, choose a bigger device, or raise bram_bits_budget."
             )
 

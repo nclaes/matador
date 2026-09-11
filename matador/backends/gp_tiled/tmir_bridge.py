@@ -33,23 +33,23 @@ if TYPE_CHECKING:
 
 
 # Hard ceilings imposed by the AXI-Stream header's own wire format (see
-# tm_accel_gp.v:22-30) — word1/word2 8-bit sub-fields (n_classes,
-# clauses_per_class, threshold, n_beats, n_feat_slices, n_clause_slices) and
-# word3 16-bit sub-fields (n_clauses_total, n_tiles). The vendored core's
-# internal FSM registers were widened to match these exactly (see
-# tm_accel_gp.v's capacity register table), so these are now the true
-# ceilings — not an arbitrary internal-register limitation. Going beyond
-# them requires changing the wire protocol itself (a breaking change to the
-# header format), out of scope for this backend.
+# tm_accel_gp.v:22-30) — word1's n_classes (8 bits) and clauses_per_class
+# (16 bits, widened from 8 by reclaiming the byte a vestigial `threshold`
+# field used to occupy -- scores have always been unclamped, so that field
+# carried no signal and was retired from the wire protocol entirely, not
+# just widened around); word2's 8-bit sub-fields (n_beats, n_feat_slices,
+# n_clause_slices); word3's 16-bit sub-fields (n_clauses_total, n_tiles).
+# The vendored core's internal FSM registers were widened to match these
+# exactly (see tm_accel_gp.v's capacity register table), so these are now
+# the true ceilings — not an arbitrary internal-register limitation. Going
+# beyond them requires changing the wire protocol itself (a breaking change
+# to the header format), out of scope for this backend.
 HARD_MAX_CLASSES = 255
 HARD_MAX_CLAUSES_TOTAL = 65535
 HARD_MAX_FEAT_SLICES = 255
 HARD_MAX_CLAUSE_SLICES = 255
-HARD_MAX_CLAUSES_PER_CLASS = 255
+HARD_MAX_CLAUSES_PER_CLASS = 65535
 HARD_MAX_TILES = 65535
-# threshold is VESTIGIAL (scores are unclamped, see score_acc_rt.v) --
-# this is the header's 8-bit field width, not a hardware clamp bound.
-HARD_MAX_THRESHOLD = 255
 
 
 class GPCapacityError(ValueError):
@@ -78,7 +78,6 @@ def sync_capacity(config: "GPTiledAcceleratorConfig") -> None:
     tm_emulator.MAX_FEAT_SLICES = config.max_feat_slices
     tm_emulator.MAX_CLAUSE_SLICES = config.max_clause_slices
     tm_emulator.MAX_TILES = config.max_feat_slices * config.max_clause_slices
-    tm_emulator.MAX_THRESHOLD = HARD_MAX_THRESHOLD
 
 
 def _row_to_bitmask(row: np.ndarray) -> int:
@@ -123,7 +122,6 @@ def tmir_to_tmmodel(tmir: "TMIR", name: str = "model") -> TMModel:
         n_features=arch.n_features,
         n_classes=arch.n_classes,
         clauses_per_class=arch.n_clauses_per_class,
-        threshold=arch.threshold,
         include=include,
         name=name,
     )
@@ -167,17 +165,11 @@ def check_capacity(tmir: "TMIR", config: "GPTiledAcceleratorConfig") -> None:
             f"max_clause_slices={config.max_clause_slices} (derived from "
             f"max_clauses_total={config.max_clauses_total}/clause_slice={config.clause_slice})"
         )
-    if arch.threshold > HARD_MAX_THRESHOLD:
-        problems.append(
-            f"threshold={arch.threshold} exceeds the hard RTL limit of {HARD_MAX_THRESHOLD} "
-            f"(the CMD_LOAD header's threshold field is 8 bits; threshold itself is "
-            f"vestigial and has no effect on scoring, see score_acc_rt.v)"
-        )
     if arch.n_clauses_per_class is not None and arch.n_clauses_per_class > HARD_MAX_CLAUSES_PER_CLASS:
         problems.append(
             f"n_clauses_per_class={arch.n_clauses_per_class} exceeds the protocol's hard "
             f"limit of {HARD_MAX_CLAUSES_PER_CLASS} (word1's clauses_per_class header field "
-            f"is 8 bits)"
+            f"is 16 bits)"
         )
 
     if problems:

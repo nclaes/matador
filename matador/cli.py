@@ -832,7 +832,7 @@ def simulate(backend_name: str, config_path: Path, sim: str, tb: str, open_waves
     "--backend", "backend_name",
     required=True,
     type=click.Choice(list_backends()),
-    help="Backend to target — must support runtime reprogramming (currently: vanilla_gp_tiled).",
+    help="Backend to target — must support runtime reprogramming (currently: vanilla_gp_tiled, redress).",
 )
 @click.option(
     "--config",
@@ -937,14 +937,11 @@ def reprogram_suite(backend_name: str, config_path: "Path | None", reprogram_con
     click.echo("")
     sim_dir = rtl_dir / "sim"
     tb_name = artifacts.testbenches[0].stem
-    src_dir = rtl_dir / "src"
-    srcs = " ".join(str(src_dir / f) for f in (
-        "axis_fifo.v", "clause_eval.v", "tile_mem.v", "score_acc_rt.v", "argmax_rt.v", "tm_accel_gp.v",
-    ))
-    out_bin = sim_dir / tb_name
     click.echo("Next step — compile and run it:")
-    click.echo(f"  iverilog -g2001 -Wall -Wno-timescale -o {out_bin} {srcs} {artifacts.testbenches[0]} && "
-               f"(cd {sim_dir} && vvp {out_bin})")
+    click.echo(f"  bash {sim_dir / 'run_iverilog.sh'}")
+    click.echo(f"  (or run tb_reprogram_suite alone: see {sim_dir / 'run_iverilog.sh'} for the exact "
+               f"per-backend source list, since the compile invocation differs by backend; the generated "
+               f"testbench itself is {tb_name})")
 
 
 @main.command("export-model-json")

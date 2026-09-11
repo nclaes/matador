@@ -167,12 +167,17 @@ def test_config_rejects_slice_count_beyond_protocol_ceiling(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_tmir_to_tmmodel_round_trips_geometry():
+    # threshold=4 on the source TMIR is intentionally NOT expected on the
+    # resulting TMModel: threshold was retired from the wire protocol (the
+    # header byte it used to occupy now widens clauses_per_class to 16 bits
+    # instead, see tm_accel_gp.v's header comment) -- TMIR's own arch.threshold
+    # field is untouched, tmir_to_tmmodel() just no longer carries it forward.
     tmir = _make_tmir(n_features=8, n_classes=2, n_clauses_pc=4, threshold=4)
     model = tmir_to_tmmodel(tmir)
     assert model.n_features == 8
     assert model.n_classes == 2
     assert model.clauses_per_class == 4
-    assert model.threshold == 4
+    assert not hasattr(model, "threshold")
     assert len(model.include) == 8
 
 
@@ -512,7 +517,9 @@ def test_generated_model_reference_json_matches_source_model(tmp_path):
     assert ref["n_features"] == 8
     assert ref["n_classes"] == 2
     assert ref["clauses_per_class"] == 4
-    assert ref["threshold"] == 4
+    # threshold was retired from the wire protocol/gen_vectors.py's JSON
+    # schema entirely (see tm_accel_gp.v's header comment) -- not exported.
+    assert "threshold" not in ref
     assert len(ref["include"]) == 8
 
 

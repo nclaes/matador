@@ -21,9 +21,12 @@
 #     word0  [31:24] MAGIC=0xA5   [23:16] CMD   [15:0] reserved (ignored)
 #
 #   CMD_LOAD (0x02) — reprogram the tile memory with a new model:
-#     word1  [7:0]  n_classes     [15:8] clauses_per_class  [23:16] threshold
-#                                        (VESTIGIAL: scores are unclamped,
-#                                        kept only for wire compatibility)
+#     word1  [7:0]  n_classes     [23:8] clauses_per_class (16 bits -- this
+#                                        field used to be 8 bits, sharing the
+#                                        word with a vestigial `threshold`
+#                                        byte that was retired from the wire
+#                                        protocol entirely; scores have
+#                                        always been unclamped)
 #     word2  [7:0]  n_beats       [15:8] n_feat_slices      [23:16] n_clause_slices
 #     word3  [15:0] n_clauses_total                         [31:16] n_tiles
 #     payload: n_tiles rows x 64 words each; word w of a row carries row
@@ -96,9 +99,6 @@ MAX_CLAUSES_TOTAL  = 256
 MAX_FEAT_SLICES    = 16
 MAX_CLAUSE_SLICES  = 8
 MAX_TILES          = MAX_FEAT_SLICES * MAX_CLAUSE_SLICES   # 128
-# threshold (header word1 byte [23:16]) is VESTIGIAL -- scores are unclamped
-# (see score_acc_rt.v); this only bounds what the 8-bit wire field can hold.
-MAX_THRESHOLD      = 255
 
 
 def _ceil_div(a: int, b: int) -> int:
@@ -119,7 +119,6 @@ class TMModel:
     n_features: int
     n_classes: int
     clauses_per_class: int
-    threshold: int
     include: List[int] = field(default_factory=list)
     name: str = "model"
 
@@ -152,8 +151,6 @@ class TMModel:
             problems.append(f"n_classes={f.n_classes} outside 1..{MAX_CLASSES}")
         if f.clauses_per_class < 2 or f.clauses_per_class % 2:
             problems.append(f"clauses_per_class={f.clauses_per_class} must be even and >=2")
-        if not (1 <= f.threshold <= MAX_THRESHOLD):
-            problems.append(f"threshold={f.threshold} outside 1..{MAX_THRESHOLD}")
         if f.n_clauses_total > MAX_CLAUSES_TOTAL:
             problems.append(f"n_clauses_total={f.n_clauses_total} > {MAX_CLAUSES_TOTAL}")
         if f.n_feat_slices > MAX_FEAT_SLICES:
@@ -205,11 +202,24 @@ class TMModel:
         return best, scores
 
     # ── inference: tiled form (mimics S_COMPUTE accumulation exactly) ───────
-    def infer_tiled(self, features: int) -> Tuple[int, List[int]]:
+    def infer_tiled(self, features: int, rows: Optional[List[int]] = None) -> Tuple[int, List[int]]:
         """Recomputes via the same per-tile AND/OR accumulation as the RTL.
         Used to cross-check pack_tiles() + the global rule against each other.
+
+        `rows` lets a caller doing this over MANY vectors for the same
+        model (e.g. gen_vectors.py building expected predictions for a
+        whole dataset) pass in `self.pack_tiles()` computed once, instead
+        of this method silently repacking the entire tile memory from
+        scratch on every single call -- pack_tiles() is O(n_tiles x
+        CLAUSE_SLICE x FEAT_SLICE), so recomputing it per-vector turns an
+        n-vector run into a multiplicative blowup for no reason (measured:
+        made a real 1,824-vector run on a 2,508-clause/5,625-feature model
+        take 20+ minutes; passing rows through drops that to seconds).
+        Defaults to None (repack every call) to keep single-call use
+        unchanged.
         """
-        rows = self.pack_tiles()
+        if rows is None:
+            rows = self.pack_tiles()
         n_cs = self.n_clause_slices
         n_fs = self.n_feat_slices
         n_lanes = n_cs * CLAUSE_SLICE
@@ -284,11 +294,11 @@ class TMModel:
 
     @staticmethod
     def unpack_tiles(rows: Sequence[int], n_features: int, n_classes: int,
-                     clauses_per_class: int, threshold: int,
+                     clauses_per_class: int,
                      name: str = "unpacked") -> "TMModel":
         """Inverse of pack_tiles(): rebuild a TMModel from address-ordered rows."""
         m = TMModel(n_features=n_features, n_classes=n_classes,
-                    clauses_per_class=clauses_per_class, threshold=threshold,
+                    clauses_per_class=clauses_per_class,
                     include=[0] * (n_classes * clauses_per_class), name=name)
         F = n_features
         for fs in range(m.n_feat_slices):
@@ -329,8 +339,7 @@ def encode_load_packet(m: TMModel) -> List[int]:
     """CMD_LOAD packet (header + geometry + payload). TLAST = final word."""
     m.validate()
     w0 = (MAGIC << 24) | (CMD_LOAD << 16)
-    w1 = (m.n_classes & 0xFF) | ((m.clauses_per_class & 0xFF) << 8) \
-         | ((m.threshold & 0xFF) << 16)
+    w1 = (m.n_classes & 0xFF) | ((m.clauses_per_class & 0xFFFF) << 8)
     w2 = (m.n_beats & 0xFF) | ((m.n_feat_slices & 0xFF) << 8) \
          | ((m.n_clause_slices & 0xFF) << 16)
     w3 = (m.n_clauses_total & 0xFFFF) | ((m.n_tiles & 0xFFFF) << 16)
@@ -373,7 +382,7 @@ def extract_rom_model(rtl_path: Path, name: str = "frozen") -> TMModel:
         raise ValueError(f"expected 112 ROM rows in {rtl_path}, found {len(rows_by_addr)}")
     rows = [rows_by_addr[a] for a in range(112)]
     m = TMModel.unpack_tiles(rows, n_features=512, n_classes=10,
-                             clauses_per_class=20, threshold=8, name=name)
+                             clauses_per_class=20, name=name)
     # round-trip check: repacking must reproduce the ROM bit-for-bit
     if m.pack_tiles() != rows:
         raise AssertionError("pack_tiles(unpack_tiles(rom)) != rom — layout bug")
@@ -388,7 +397,7 @@ def load_tmir(path: Path) -> TMModel:
 
     TMIR.zip was not uploaded in this session, so the schema is unknown here.
     Once the TMIR format is available, implement the mapping to:
-        n_features, n_classes, clauses_per_class, threshold,
+        n_features, n_classes, clauses_per_class,
         include[g] bitmask per global clause (positive literal f -> bit f,
         negated literal f -> bit n_features + f).
     Everything downstream (pack_tiles, encode_load_packet, infer) then works
@@ -404,13 +413,13 @@ def load_tmir(path: Path) -> TMModel:
 # Helpers for generating tests
 # ─────────────────────────────────────────────────────────────────────────────
 def random_model(rng: random.Random, n_features: int, n_classes: int,
-                 clauses_per_class: int, threshold: int,
+                 clauses_per_class: int,
                  include_density: float = 0.02, name: str = "rand") -> TMModel:
     """Random-but-plausible model: sparse Includes like a trained TM.
     Guarantees at least one non-empty clause overall so inference is non-trivial;
     individual clauses may legitimately be empty (exercises the empty rule)."""
     m = TMModel(n_features=n_features, n_classes=n_classes,
-                clauses_per_class=clauses_per_class, threshold=threshold,
+                clauses_per_class=clauses_per_class,
                 include=[], name=name)
     for _ in range(n_classes * clauses_per_class):
         inc = 0
@@ -475,7 +484,7 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     print("── extracting frozen model from", rtl.name)
     m = extract_rom_model(rtl)
     print(f"   {m.n_classes} classes, {m.clauses_per_class} clauses/class, "
-          f"{m.n_features} features, T={m.threshold}, "
+          f"{m.n_features} features, "
           f"{m.n_tiles} tiles ({m.n_feat_slices}x{m.n_clause_slices})")
 
     feats, exp = parse_tb_system_vectors(tb)
@@ -497,7 +506,6 @@ def cmd_selftest(args: argparse.Namespace) -> int:
                           n_features=rng.choice([48, 96, 128, 512]),
                           n_classes=rng.choice([2, 3, 4, 10]),
                           clauses_per_class=rng.choice([4, 8, 20]),
-                          threshold=rng.choice([2, 4, 8]),
                           include_density=rng.choice([0.0, 0.01, 0.05]))
         for _ in range(8):
             fv = rng.getrandbits(nm.n_features)
@@ -533,7 +541,6 @@ def cmd_genvec(args: argparse.Namespace) -> int:
     small = random_model(rng, n_features=args.small_features,
                          n_classes=args.small_classes,
                          clauses_per_class=args.small_cpc,
-                         threshold=args.small_threshold,
                          include_density=0.06, name="small")
     small_vecs = [rng.getrandbits(small.n_features) for _ in range(args.small_frames)]
 
@@ -595,7 +602,7 @@ def cmd_genvec(args: argparse.Namespace) -> int:
     )
     print(f"wrote {len(s_words)} stimulus beats, {len(exp_words)} expected beats -> {out}")
     print(f"small model: {small.n_classes} classes x {small.clauses_per_class} cpc, "
-          f"{small.n_features} features, T={small.threshold}, "
+          f"{small.n_features} features, "
           f"{small.n_tiles} tiles, {small.n_beats} beats/frame")
     return 0
 
@@ -618,7 +625,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     gv.add_argument("--small-features", type=int, default=96)
     gv.add_argument("--small-classes", type=int, default=4)
     gv.add_argument("--small-cpc", type=int, default=8)
-    gv.add_argument("--small-threshold", type=int, default=4)
     gv.add_argument("--small-frames", type=int, default=6)
     gv.set_defaults(func=cmd_genvec)
 

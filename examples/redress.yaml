@@ -1,0 +1,72 @@
+# redress.yaml — REDRESS/MUSTANG backend configuration
+#
+# Usage:
+#   matador generate --backend redress --config examples/redress.yaml
+#
+# Architecture
+# ------------
+# MUSTANG's Single-Core configuration (source thesis Ch. 5.3): a hardware
+# translation of the REDRESS 16-bit Include-Encoding compression scheme
+# (Ch. 4.3, Algorithms 11/12). Unlike vanilla_tiled/vanilla_hardwired, RTL is
+# generated ONCE per capacity below — swapping to a different (smaller-or-
+# equal-encoded-size) trained model does not require resynthesis, only a
+# fresh AXI-Stream Instruction-stream packet at runtime (see
+# RTL/src/redress_accel.v's header comment for the wire protocol).
+#
+# Unlike vanilla_gp_tiled's dense tile memory, the loaded representation
+# here is SPARSE: one 16-bit word per included literal, nothing stored for
+# excludes or empty clauses — so capacity is expressed directly in
+# max_includes (a word count), not derived from n_features x n_clauses.
+#
+# Prerequisites: a trained TMIR model at model_path (from `matador train`).
+
+# Path to the trained TMIR model file (.yaml or .npz). Used to build the
+# Instruction-stream artifact and the model-specific verification
+# testbench — it does not change the generated RTL's capacity/datapath.
+model_path: /work/TMIR/<model_name>/TM_TMIR_Clauses_50_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+
+# Root output directory. RTL is written to <output_dir>/RTL/.
+output_dir: /work
+
+# AXI-Stream TDATA width in bits. Only 32 is currently supported.
+axis_data_width: 32
+
+# Currently unused by redress_accel.v (no separate input FIFO — Instruction
+# Memory / Feature FIFO ARE the buffering); kept for config symmetry with
+# vanilla_gp_tiled and forward compatibility.
+fifo_depth: 16
+
+# ── datapoints classified per pass through the instruction stream ──────
+# Algorithm 12's W: also the Feature FIFO word width and the number of
+# parallel AND-accumulate lanes. The thesis evaluates 16/32/64; 32 is the
+# default used throughout this repo's verification.
+batch_width: 32
+
+# ── target device ───────────────────────────────────────────────────────
+# The real capacity constraint: Instruction Memory + Feature FIFO must fit
+# the target device's Block RAM budget (see
+# matador.backends.fpga_budget.FPGA_BRAM_BITS / REDRESS_BRAM_FRACTION).
+# Known devices: xc7z020 (Zynq-7020, 4.9 Mbit BRAM), xcku040 (Kintex
+# UltraScale, 38 Mbit BRAM). For any other device, also set
+# bram_bits_budget to its total BRAM bit count directly.
+target_fpga: xc7z020
+# bram_bits_budget: 100000000   # uncomment + set if target_fpga isn't known
+
+# ── compile-time capacity (real units; silicon sizing) ─────────────────
+# max_includes is DATA-dependent — the largest compressed model (sum of
+# Include counts across all classes) any loaded model may need. It is NOT
+# derivable from n_features/n_clauses_per_class alone (REDRESS's whole
+# premise is that compressed size depends on how sparse the trained model
+# actually is); size it from the sparsest-case model(s) you actually intend
+# to load. Run `matador generate` once to see the real encoded size in the
+# error message if this is too small.
+max_includes: 4096
+
+# Compile-time max n_features any loaded model may use. Hard ceiling 4096
+# (MUSTANG's 16-bit instruction word allocates a 12-bit feature offset —
+# see codec.MUSTANG_MAX_FEATURES).
+max_features: 256
+
+# Compile-time max n_classes any loaded model may use. Hard ceiling 255
+# (the Instruction Header's 8-bit n_classes field).
+max_classes: 16

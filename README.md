@@ -48,6 +48,7 @@ matador clean --dry-run      # preview a full workspace reset (nothing removed w
 | [docs/walkthroughs/vanilla_gp_tiled.md](docs/walkthroughs/vanilla_gp_tiled.md) | Train two models (`sports`, `statlog`), reprogram one bitstream between them (verified under iverilog and Verilator), then hand a third model to an RTL engineer with no matador install |
 | [docs/walkthroughs/vanilla_hardwired.md](docs/walkthroughs/vanilla_hardwired.md) | Train → generate → simulate → emulate, one model, wired-logic backend |
 | [docs/walkthroughs/vanilla_tiled.md](docs/walkthroughs/vanilla_tiled.md) | Train → generate → simulate → emulate, one model, tile-ROM backend |
+| [docs/walkthroughs/redress.md](docs/walkthroughs/redress.md) | Train → generate → simulate → emulate → reprogram-suite, sparse compressed-instruction-stream backend; confirms 32-wide parallel batching on a full held-out test set under both simulators |
 
 ---
 
@@ -102,6 +103,7 @@ covers all 8 datasets in arXiv:2502.05640's Table 1.
 | `vanilla_tiled` | Vanilla TM — sequential FSM + tile ROM. Knobs: `feat_slice`, `clause_slice`. |
 | `vanilla_hardwired` | Vanilla TM — HCB streaming + adder tree. Knobs: `pipeline_stages`. |
 | `vanilla_gp_tiled` | Vanilla TM — runtime-reprogrammable tiled core (vendored from GP_TM_Inference_Accelerator). One synthesis, reprogrammable at runtime via AXI-Stream `CMD_LOAD` — no resynthesis to swap models. Capacity is checked against a target FPGA's BRAM budget. Knobs: `target_fpga`, `feat_slice`, `clause_slice`, `max_features`, `max_clauses_total`, `max_classes`. Multi-model/dataset reprogramming can be proven end to end with `matador reprogram-suite`. |
+| `redress` | Vanilla TM — runtime-reprogrammable MUSTANG Single-Core accelerator (16-bit Include-Encoded sparse instruction stream, REDRESS thesis Ch. 4.3/5.3). One synthesis, reprogrammable at runtime via an AXI-Stream Instruction-stream packet. `batch_width` (16/32/64) datapoints are classified in parallel per pass through the instruction stream — one shared decode feeding `batch_width` parallel vote-accumulator/argmax lanes. Knobs: `target_fpga`, `max_includes` (data-dependent compressed-size ceiling), `max_features`, `max_classes`, `batch_width`. Also supports `matador reprogram-suite`. |
 
 See [docs/Developer.md](docs/Developer.md#adding-a-new-accelerator-backend) to add another one.
 

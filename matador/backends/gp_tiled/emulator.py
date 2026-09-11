@@ -53,6 +53,12 @@ class GPTiledEmulator:
         self.tmir = tmir
         self.config = config
         self.model = tmir_to_tmmodel(tmir, name=config.model_path.stem)
+        # Packed once here, not per run() call: infer_tiled() defaults to
+        # repacking the whole tile memory from scratch every call, which is
+        # fine for a single inference but a multiplicative blowup across a
+        # full test set (see infer_tiled()'s own docstring) -- this emulator
+        # answers many run() calls against the SAME model, so pack once.
+        self._rows = self.model.pack_tiles()
 
     def run(self, input_vector: list) -> GPInferenceTrace:
         """Emulate one inference. Matches tm_accel_gp RTL behaviour exactly
@@ -66,7 +72,7 @@ class GPTiledEmulator:
             if int(bit) & 1:
                 fv_int |= 1 << f
 
-        predicted, scores = self.model.infer_tiled(fv_int)
+        predicted, scores = self.model.infer_tiled(fv_int, rows=self._rows)
 
         trace = GPInferenceTrace(feature_vector=list(input_vector), scores=scores)
         trace.argmax_event = GPArgmaxEvent(scores=scores, predicted_class=predicted)

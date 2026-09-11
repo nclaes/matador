@@ -218,7 +218,7 @@ module tb_system_gp;
 
         // C3: geometry out of range (n_classes = 0) -> drain -> ERR_RANGE
         send_beat(HDR_LOAD, 1'b0);
-        send_beat(32'h0004_0800, 1'b0);    // classes=0, cpc=8, thr=4
+        send_beat(32'h0000_0800, 1'b0);    // classes=0, cpc=8
         send_beat(32'h0001_0303, 1'b0);    // beats=3, nfs=3, ncs=1
         send_beat(32'h0003_0020, 1'b0);    // nct=32, ntiles=3
         send_beat(32'hBAD0_BAD0, 1'b0);

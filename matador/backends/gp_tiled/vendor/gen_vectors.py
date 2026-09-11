@@ -19,7 +19,6 @@ Model JSON schema:
     "n_features": int,
     "n_classes": int,
     "clauses_per_class": int,   # even
-    "threshold": int,
     "include": [int, ...]       # one bitmask per global clause (n_classes *
                                  # clauses_per_class entries); bit f = positive
                                  # literal of feature f, bit n_features+f =
@@ -116,7 +115,6 @@ def load_model(path: Path) -> "te.TMModel":
         n_features=data["n_features"],
         n_classes=data["n_classes"],
         clauses_per_class=data["clauses_per_class"],
-        threshold=data["threshold"],
         include=list(data["include"]),
         name=data.get("name", path.stem),
     )
@@ -162,7 +160,8 @@ def _emit_infer(model, feature_vectors, out_path, expected_path) -> None:
     te.write_memh(Path(out_path), words, lasts)
     print(f"wrote {len(words)} CMD_INFER words ({len(feature_vectors)} frames) -> {out_path}")
 
-    preds = [model.infer_tiled(fv)[0] for fv in feature_vectors]
+    rows = model.pack_tiles()  # once, not per-vector -- see infer_tiled()'s docstring
+    preds = [model.infer_tiled(fv, rows=rows)[0] for fv in feature_vectors]
     if expected_path:
         exp_lasts = [0] * (len(preds) - 1) + [1] if preds else []
         te.write_memh(Path(expected_path), preds, exp_lasts)
@@ -192,6 +191,7 @@ module {tb_name};
     localparam N_STIM = {n_stim};
     localparam N_EXP  = {n_exp};
     localparam TO_MAX = {to_max};
+    localparam WATCHDOG = {watchdog};  // #time-units, not cycles -- see _emit_testbench()
 
     reg                        clk, rst_n;
     reg                        s_tvalid;
@@ -306,7 +306,7 @@ module {tb_name};
     end
 
     initial begin
-        #40_000_000;
+        #WATCHDOG;
         $display("TIMEOUT: global watchdog expired");
         $finish;
     end
@@ -340,9 +340,27 @@ def _emit_testbench(name: str, tb_path: Path, stim_file: str, exp_file: str, n_s
         f".CLASS_WIDTH({class_width}), .FIFO_DEPTH(16)"
     )
     tb_name = "tb_" + "".join(c if c.isalnum() else "_" for c in name)
+    # Global run-budget watchdog: was a flat #40_000_000, sized for the small
+    # demo-scale runs this tool originally shipped with -- silently too
+    # small for a genuine full-dataset run (measured: a real 11,826-beat,
+    # 2-model run needs ~66M clock cycles, over 16x the old budget, and
+    # would time out partway through with no indication *why* the failure
+    # looked like a real bug rather than an undersized watchdog). Computed
+    # generously here from n_exp x a per-inference cycle upper bound
+    # (n_tiles_max + MAX_CLAUSES_TOTAL -- the compile-time capacity
+    # ceiling, so it's an upper bound for ANY model this bitstream could
+    # ever load, not just the one(s) in this particular run) plus n_stim
+    # (cycles to stream the stimulus itself) -- a real bug still times out,
+    # it just won't time out from legitimate work taking longer than an
+    # arbitrary constant anticipated.
+    clk_period_ns = 10
+    cycles_per_inference_upper_bound = n_tiles_max + te.MAX_CLAUSES_TOTAL + 8
+    watchdog_cycles = n_stim + n_exp * cycles_per_inference_upper_bound
+    watchdog_ns = max(4_000_000, watchdog_cycles * clk_period_ns)
     text = _TB_TEMPLATE.format(
         model_name=name, tb_name=tb_name, axis_data_width=te.AXIS_W,
         n_stim=n_stim, n_exp=n_exp, to_max=max(200_000, 4 * n_stim),
+        watchdog=watchdog_ns,
         dut_params=dut_params, stim_file=stim_file, exp_file=exp_file,
     )
     tb_path.write_text(text)
@@ -366,7 +384,8 @@ def cmd_combined(args: argparse.Namespace) -> int:
     te.write_memh(Path(args.out), stim_words, stim_lasts)
     print(f"wrote {len(stim_words)} combined LOAD+INFER words -> {args.out}")
 
-    preds = [model.infer_tiled(fv)[0] for fv in vecs]
+    rows = model.pack_tiles()  # once, not per-vector -- see infer_tiled()'s docstring
+    preds = [model.infer_tiled(fv, rows=rows)[0] for fv in vecs]
     exp_words = [te.expected_load_ack(model), *preds]
     exp_lasts = [1] + ([0] * (len(preds) - 1) + [1] if preds else [])
     if args.expected:
@@ -428,7 +447,8 @@ def cmd_sequence(args: argparse.Namespace) -> int:
         if vecs:
             packets.append(te.encode_infer_packet(model, vecs))
 
-        preds = [model.infer_tiled(fv)[0] for fv in vecs]
+        rows = model.pack_tiles()  # once, not per-vector -- see infer_tiled()'s docstring
+        preds = [model.infer_tiled(fv, rows=rows)[0] for fv in vecs]
         exp_words.append(te.expected_load_ack(model))
         exp_lasts.append(1)
         if preds:

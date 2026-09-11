@@ -21,6 +21,7 @@ _BACKENDS: dict[str, tuple[str, str]] = {
     "vanilla_tiled":     ("matador.backends.tiled.rtl",     "TiledBackend"),
     "vanilla_hardwired": ("matador.backends.hardwired.rtl", "HardwiredBackend"),
     "vanilla_gp_tiled":  ("matador.backends.gp_tiled.rtl",  "GPTiledBackend"),
+    "redress":           ("matador.backends.redress.rtl",  "RedressBackend"),
 }
 
 # Short one-line descriptions shown in list-backends and the splash screen
@@ -30,6 +31,10 @@ _DESCRIPTIONS: dict[str, str] = {
     "vanilla_gp_tiled":  "Vanilla TM — runtime-reprogrammable tiled core (vendored from "
                          "GP_TM_Inference_Accelerator). Knobs: target_fpga, feat_slice, "
                          "clause_slice, max_features, max_clauses_total, max_classes.",
+    "redress":           "Vanilla TM — runtime-reprogrammable MUSTANG Single-Core accelerator "
+                         "(sparse 16-bit Include-Encoded instruction stream, REDRESS thesis "
+                         "Ch. 4.3/5.3). Knobs: target_fpga, max_includes, max_features, "
+                         "max_classes, batch_width.",
 }
 
 

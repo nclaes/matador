@@ -21,11 +21,12 @@
 //
 //   CMD_LOAD packet (reprogram the model):
 //     word1  [ 7: 0] n_classes          1..MAX_CLASSES
-//            [15: 8] clauses_per_class  even, >=2
-//            [23:16] threshold          1..255 (VESTIGIAL -- retained for
-//                                        wire-protocol compatibility only;
-//                                        scores are unclamped, see
-//                                        score_acc_rt.v)
+//            [23: 8] clauses_per_class  even, >=2 (16 bits -- absorbs the
+//                                        byte a vestigial `threshold` field
+//                                        used to occupy; scores have always
+//                                        been unclamped, see score_acc_rt.v,
+//                                        so that field carried no signal and
+//                                        was retired from the wire entirely)
 //     word2  [ 7: 0] n_beats            1..MAX_FEAT_SLICES   (feature words/frame)
 //            [15: 8] n_feat_slices      1..MAX_FEAT_SLICES
 //            [23:16] n_clause_slices    1..MAX_CLAUSE_SLICES
@@ -151,10 +152,6 @@ module tm_accel_gp #(
     localparam [7:0] ERR_NOCFG    = 8'hE5;
 
     localparam WORDS_PER_TILE = TILE_WIDTH / AXIS_DATA_WIDTH;   // 64
-    // NOTE: threshold (header word1 byte [23:16]) no longer clamps scores
-    // (see score_acc_rt.v) -- it is latched and range-checked purely for
-    // wire-protocol backward compatibility with existing host packers.
-    // geom_ok below only requires it nonzero; any value 1..255 is valid.
 
     // ── FSM states ────────────────────────────────────────────────────────
     localparam [3:0] S_IDLE    = 4'd0;   // wait/decode header word 0
@@ -190,9 +187,8 @@ module tm_accel_gp #(
 
     // ── runtime configuration (latched from a validated LOAD header) ──────
     reg [CLASS_WIDTH:0]   cfg_n_classes;       // 1..MAX_CLASSES (CLASS_WIDTH+1 bits: must hold MAX_CLASSES itself)
-    reg [7:0]             cfg_cpc;             // clauses per class (even)
-    reg [7:0]             cfg_half;            // cfg_cpc / 2
-    reg [7:0]             cfg_threshold;       // vestigial, see NOTE above -- width matches the 8-bit header field
+    reg [15:0]            cfg_cpc;             // clauses per class (even)
+    reg [15:0]            cfg_half;            // cfg_cpc / 2
     reg [7:0]             cfg_n_beats;         // 1..MAX_FEAT_SLICES
     reg [7:0]             cfg_n_feat_slices;   // 1..MAX_FEAT_SLICES
     reg [7:0]             cfg_n_clause_slices; // 1..MAX_CLAUSE_SLICES
@@ -205,8 +201,7 @@ module tm_accel_gp #(
 
     // ── header geometry validation (combinational, at word 3) ────────────
     wire [7:0]  v_ncls  = hdr_w1[7:0];
-    wire [7:0]  v_cpc   = hdr_w1[15:8];
-    wire [7:0]  v_thr   = hdr_w1[23:16];
+    wire [15:0] v_cpc   = hdr_w1[23:8];
     wire [7:0]  v_nbts  = hdr_w2[7:0];
     wire [7:0]  v_nfs   = hdr_w2[15:8];
     wire [7:0]  v_ncs   = hdr_w2[23:16];
@@ -215,8 +210,7 @@ module tm_accel_gp #(
 
     wire geom_ok =
         (v_ncls >= 8'd1) && (v_ncls <= MAX_CLASSES)                 &&
-        (v_cpc  >= 8'd2) && (v_cpc[0] == 1'b0)                      &&
-        (v_thr  >= 8'd1)                                            &&
+        (v_cpc  >= 16'd2) && (v_cpc[0] == 1'b0)                     &&
         (v_nbts >= 8'd1) && (v_nbts <= MAX_FEAT_SLICES)             &&
         (v_nfs  >= 8'd1) && (v_nfs  <= MAX_FEAT_SLICES)             &&
         (v_ncs  >= 8'd1) && (v_ncs  <= MAX_CLAUSE_SLICES)           &&
@@ -300,7 +294,7 @@ module tm_accel_gp #(
 
     // ── score phase: runtime class / polarity decode (no dividers) ────────
     reg  [15:0] score_cnt;     // global clause index
-    reg  [7:0] intra_cnt;      // index within the current class (0..cpc-1)
+    reg  [15:0] intra_cnt;     // index within the current class (0..cpc-1)
     reg  [CLASS_WIDTH-1:0] score_class_r;
 
     wire score_valid  = (state == S_SCORE);
@@ -310,19 +304,13 @@ module tm_accel_gp #(
     reg  score_clear;
 
     wire [SCORE_WIDTH*MAX_CLASSES-1:0] scores_flat;
-    // cfg_threshold is fixed at 8 bits (the header field width); zero/sign
-    // -extend it to SCORE_WIDTH here via a plain assignment (correct either
-    // direction, unlike a port connection of mismatched width, which some
-    // tools warn on) since SCORE_WIDTH is capacity-derived and may be <, ==,
-    // or > 8. threshold itself is vestigial -- see score_acc_rt.v.
-    wire [SCORE_WIDTH-1:0] cfg_threshold_ext = cfg_threshold;
 
     score_acc_rt #(
         .N_CLASSES(MAX_CLASSES), .SCORE_WIDTH(SCORE_WIDTH)
     ) u_score_acc (
         .clk(clk), .rst_n(rst_n), .clear(score_clear), .valid(score_valid),
         .cls(score_class_r), .polarity(score_is_pos), .active(score_active),
-        .threshold(cfg_threshold_ext), .scores_flat(scores_flat)
+        .scores_flat(scores_flat)
     );
 
     wire [CLASS_WIDTH-1:0] argmax_out;
@@ -354,9 +342,8 @@ module tm_accel_gp #(
             m_axis_tdata     <= {AXIS_DATA_WIDTH{1'b0}};
             m_axis_tlast     <= 1'b0;
             cfg_n_classes    <= 8'd0;
-            cfg_cpc          <= 8'd0;
-            cfg_half         <= 8'd0;
-            cfg_threshold    <= 8'd0;
+            cfg_cpc          <= 16'd0;
+            cfg_half         <= 16'd0;
             cfg_n_beats      <= 8'd0;
             cfg_n_feat_slices   <= 8'd0;
             cfg_n_clause_slices <= 8'd0;
@@ -380,7 +367,7 @@ module tm_accel_gp #(
             p_feat_cnt       <= 8'd0;
             p_cs             <= 8'd0;
             score_cnt        <= 16'd0;
-            intra_cnt        <= 8'd0;
+            intra_cnt        <= 16'd0;
             score_class_r    <= {CLASS_WIDTH{1'b0}};
             score_clear      <= 1'b0;
             err_code         <= 8'd0;
@@ -451,8 +438,7 @@ module tm_accel_gp #(
                             if (geom_ok) begin
                                 cfg_n_classes       <= v_ncls;
                                 cfg_cpc             <= v_cpc;
-                                cfg_half            <= {1'b0, v_cpc[7:1]};
-                                cfg_threshold       <= v_thr;
+                                cfg_half            <= {1'b0, v_cpc[15:1]};
                                 cfg_n_beats         <= v_nbts;
                                 cfg_n_feat_slices   <= v_nfs;
                                 cfg_n_clause_slices <= v_ncs;
@@ -586,7 +572,7 @@ module tm_accel_gp #(
                     // exit as the last row retires
                     if (issue_done && p_valid) begin
                         score_cnt     <= 16'd0;
-                        intra_cnt     <= 8'd0;
+                        intra_cnt     <= 16'd0;
                         score_class_r <= {CLASS_WIDTH{1'b0}};
                         state         <= S_SCORE;
                     end
@@ -597,11 +583,11 @@ module tm_accel_gp #(
                 // (n_classes, clauses_per_class) within capacity works.
                 S_SCORE: begin
                     score_cnt <= score_cnt + 16'd1;
-                    if (intra_cnt == cfg_cpc - 8'd1) begin
-                        intra_cnt     <= 8'd0;
+                    if (intra_cnt == cfg_cpc - 16'd1) begin
+                        intra_cnt     <= 16'd0;
                         score_class_r <= score_class_r + {{(CLASS_WIDTH-1){1'b0}}, 1'b1};
                     end else begin
-                        intra_cnt <= intra_cnt + 8'd1;
+                        intra_cnt <= intra_cnt + 16'd1;
                     end
                     if (score_cnt == cfg_n_clauses_total - 16'd1)
                         state <= S_DONE;

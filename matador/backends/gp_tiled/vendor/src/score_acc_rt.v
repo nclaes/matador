@@ -1,7 +1,6 @@
 `timescale 1ns/1ps
 // =============================================================================
-// score_acc_rt — per-class vote accumulator, unclamped, with a legacy
-// runtime threshold input retained for wire-protocol compatibility only
+// score_acc_rt — per-class vote accumulator, unclamped
 // =============================================================================
 // Same unclamped accumulation as score_acc.v (see its header comment for the
 // full rationale): scores are the raw, unclamped sum of clause votes, never
@@ -10,12 +9,12 @@
 // compile-time capacity could ever produce -- half of MAX_CLAUSES_TOTAL, all
 // one polarity, all firing -- so the register can never overflow.
 //
-// `threshold` IS VESTIGIAL. This core is reprogrammable: CMD_LOAD's header
-// (word 1, byte [23:16]) still carries a threshold field so existing host
-// packers (tm_emulator.py::encode_load_packet()) and the wire protocol keep
-// working unchanged, and tm_accel_gp.v still range-checks and latches it
-// into cfg_threshold. It is wired into this module's `threshold` port for
-// that reason alone -- it has no effect on accumulation.
+// This module used to carry a vestigial `threshold` input port (CMD_LOAD's
+// header used to reserve a byte for it purely for wire-protocol compatibility
+// with an even older runtime-clamp design; it never affected accumulation
+// here). That header byte was reclaimed to widen `clauses_per_class` from
+// 8 to 16 bits (see tm_accel_gp.v's header comment), which retired the field
+// from the wire protocol entirely -- so the port is gone too, not just unused.
 // (An earlier version of this module used `threshold` as a RUNTIME clamp
 // bound, guarding each increment/decrement (`if (score < threshold) ...`).
 // That was order-dependent -- see score_acc.v's header -- and removed in
@@ -38,13 +37,8 @@ module score_acc_rt #(
     input  wire [$clog2(N_CLASSES)-1:0]     cls,
     input  wire                             polarity,
     input  wire                             active,
-    input  wire [SCORE_WIDTH-1:0]           threshold,   // vestigial, see header
     output wire [SCORE_WIDTH*N_CLASSES-1:0] scores_flat
 );
-
-    /* verilator lint_off UNUSEDSIGNAL */
-    wire [SCORE_WIDTH-1:0] _unused_threshold = threshold;
-    /* verilator lint_on UNUSEDSIGNAL */
 
     reg signed [SCORE_WIDTH-1:0] scores [0:N_CLASSES-1];
     integer i;
