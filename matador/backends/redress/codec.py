@@ -761,3 +761,142 @@ def _mustang_full_class_scores(
         all_scores[:, current_class] = y
 
     return all_scores
+
+
+# ---------------------------------------------------------------------------
+# Reverse decode: instruction stream -> include bitmask array (provenance)
+# ---------------------------------------------------------------------------
+
+def mustang_decode_to_includes(
+    E_words: Sequence[int], n_classes: int, cpc: int, n_features: int,
+) -> np.ndarray:
+    """Reconstruct a `(n_classes, cpc, 2*n_features)` boolean include array
+    directly from a MUSTANG instruction stream -- the reverse of
+    mustang_encode(), and the core of a provenance check for this backend:
+    "do the bits actually sitting in Instruction Memory decode back to the
+    model they're claimed to represent."
+
+    A REAL LIMITATION, inherited from the format itself (see mustang_encode's
+    own module-level note on empty classes): only NON-EMPTY clauses are
+    transmitted at all, so the stream carries no record of which original
+    clause SLOT a given transmitted clause occupied -- only that it came
+    after however many CC toggles preceded it within its class, AND its own
+    P (polarity) bit. This function places transmitted clauses into slots
+    0, 1, 2, ... in transmission order WITHIN THEIR OWN POLARITY HALF for
+    each class (positive clauses compacted into slots [0, half), negative
+    into [half, cpc) -- half = cpc // 2, matador's grouped-polarity
+    convention, same as encode() assumes), leaving any remaining slots in
+    each half as fully excluded -- exactly matching "empty clause"
+    semantics. This preserves the position-implies-polarity invariant
+    every other part of this codebase relies on (P is never stored
+    per-slot, only inferred from `slot < half`) even after compression --
+    getting this wrong (e.g. compacting across the whole [0, cpc) range
+    ignoring polarity) silently corrupts inference on the reconstruction
+    whenever a class has empty clauses in only one of its two polarity
+    halves, a real bug caught via REDRESS_TM_TinyML's real trained models
+    (statlog), not merely a theoretical concern. The reconstruction is
+    bit-for-bit POSITIONALLY identical to the original only when neither
+    polarity half of a class has an empty clause interleaved between
+    non-empty ones of the same polarity (empty clauses only at the tail of
+    their half, or none at all). Callers comparing a reconstruction against
+    a claimed model should account for this -- e.g. compare each class's
+    set of non-empty clause masks rather than raw positional equality; see
+    REDRESS_TM_TinyML/verify_provenance.py for a worked example.
+
+    Args:
+        E_words:    from mustang_encode() (or an RTL-loaded copy
+                    reconstructed bit-for-bit the same way).
+        n_classes:  total class count (the caller's own claim -- MUSTANG has
+                    no Inc_per_class-style field to read this from, same as
+                    mustang_decode_and_infer()).
+        cpc:        clauses per class (the caller's own claim). Must be
+                    large enough to hold every class's transmitted non-empty
+                    clause count, or this raises ValueError.
+        n_features: feature count (the caller's own claim).
+
+    Returns:
+        (n_classes, cpc, 2*n_features) bool ndarray.
+    """
+    half = cpc // 2
+    inc = np.zeros((n_classes, cpc, 2 * n_features), dtype=bool)
+    pos_slot_of_class = [0] * n_classes  # fills [0, half)
+    neg_slot_of_class = [half] * n_classes  # fills [half, cpc)
+
+    have_clause = False
+    have_class = False
+    current_class = -1
+    P_prev = 0
+    CC_prev = 0
+    E_prev = 0
+    clause_lits: set = set()
+
+    def _flush_clause():
+        nonlocal clause_lits
+        if current_class < 0 or not clause_lits:
+            clause_lits = set()
+            return
+        if P_prev == 0:
+            slot = pos_slot_of_class[current_class]
+            if slot >= half:
+                raise ValueError(
+                    f"class {current_class} transmitted more than {half} positive "
+                    f"non-empty clauses -- cpc={cpc} is too small for this stream"
+                )
+            pos_slot_of_class[current_class] += 1
+        else:
+            slot = neg_slot_of_class[current_class]
+            if slot >= cpc:
+                raise ValueError(
+                    f"class {current_class} transmitted more than {cpc - half} negative "
+                    f"non-empty clauses -- cpc={cpc} is too small for this stream"
+                )
+            neg_slot_of_class[current_class] += 1
+        for lit in clause_lits:
+            inc[current_class, slot, lit] = True
+        clause_lits = set()
+
+    for word in E_words:
+        P, CC, E, offset, L = _unpack_mustang_word(word)
+
+        if have_class and E != E_prev:
+            # New class: flush whatever clause was still open (it belongs
+            # to the OLD class) and reset clause-tracking state before
+            # moving on -- mirrors mustang_decode_and_infer()'s own
+            # class-boundary handling exactly (have_clause must be reset
+            # here too, not just have_class, or CC_prev/clause_lits leak
+            # stale state across the boundary).
+            if have_clause:
+                _flush_clause()
+                have_clause = False
+            current_class += 1
+            if current_class >= n_classes:
+                raise ValueError(
+                    f"stream encodes more than n_classes={n_classes} classes -- "
+                    "caller's n_classes claim is too small for this stream"
+                )
+            have_class = False  # forces E_prev to re-latch below
+        elif not have_class:
+            current_class = 0
+
+        if have_clause and CC != CC_prev:
+            _flush_clause()
+            have_clause = False
+
+        if not have_clause:
+            P_prev, CC_prev = P, CC
+            have_clause = True
+        if not have_class:
+            E_prev = E
+            have_class = True
+
+        lit_idx = offset if L == 0 else n_features + offset
+        clause_lits.add(lit_idx)
+
+    _flush_clause()
+
+    if current_class != n_classes - 1:
+        raise ValueError(
+            f"stream encodes {current_class + 1} classes, caller claimed n_classes={n_classes}"
+        )
+
+    return inc

@@ -111,7 +111,9 @@ module redress_accel #(
     output reg  [AXIS_DATA_WIDTH-1:0]  m_axis_tdata,
     output reg                         m_axis_tvalid,
     input  wire                        m_axis_tready,
-    output reg                         m_axis_tlast
+    output reg                         m_axis_tlast,
+
+    output wire                        busy
 );
 
     localparam OFFSET_W = 12; // fixed by the MUSTANG instruction word layout
@@ -136,6 +138,13 @@ module redress_accel #(
     localparam S_OUTPUT        = 4'd8;
 
     reg [3:0] state;
+
+    // busy: combinational, 1 whenever the FSM is doing anything but
+    // waiting for a new packet header -- gives an external observer (a
+    // fault-injection harness, a waveform viewer) a black-box way to find
+    // "somewhere mid-load-or-inference" without decoding `state` itself,
+    // the same role gp_tiled's own `busy` output port plays.
+    assign busy = (state != S_IDLE);
 
     // ── header-latched configuration ────────────────────────────────────
     reg                       is_instr_stream;

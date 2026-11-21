@@ -134,11 +134,18 @@ int main(int argc, char **argv) {
         size_t input_beat    = 0;
         size_t output_count  = 0;
         const size_t total_beats = stim.size();
-        // Timeout budget scales with stimulus length -- a large-capacity
-        // model's Instruction-stream payload alone can be hundreds of
-        // thousands of beats, dwarfing any small-model overhead a fixed
-        // constant would assume.
-        const long max_cycles = (long)total_beats * 8 + 200000;
+        // Timeout budget. The dominant cost isn't loading (total_beats) --
+        // it's that EVERY batch re-walks its model's whole instruction
+        // stream during scoring (S_INFER_INSTR/DECODE/FEAT/ACCUM), so a
+        // model with many batches pays its own instruction-stream cost
+        // more than once. A single model's own beats*8 has just enough
+        // margin for ONE such walk (empirically ~0 slack) -- in a
+        // multi-model reprogram-suite chain, exp.size()/BATCH_WIDTH extra
+        // walks are needed overall, so the budget must scale with that
+        // too, not just with a single one-time constant (a flat add-on
+        // was measured to run out exactly at cycle==max_cycles on a real
+        // 9-model, 2-batches-per-model chain).
+        const long max_cycles = (long)total_beats * 16 + (long)exp.size() * 256 + 200000;
         long cycle = 0;
 
         while (output_count < exp.size() && cycle < max_cycles) {
@@ -178,7 +185,8 @@ int main(int argc, char **argv) {
         }
 
         if (output_count < exp.size()) {
-            printf("TIMEOUT: received %zu/%zu expected output beats\n", output_count, exp.size());
+            printf("TIMEOUT: received %zu/%zu expected output beats (cycle=%ld max_cycles=%ld input_beat=%zu/%zu)\n",
+                   output_count, exp.size(), cycle, max_cycles, input_beat, total_beats);
             fail_cnt += (int)(exp.size() - output_count);
         }
     }

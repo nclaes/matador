@@ -71,7 +71,11 @@ class BaseClauseBank(CFFISerializable):
             if state & (1 << b) > 0:
                 self.clause_bank[pos + b] |= (1 << chunk_pos)
             else:
-                self.clause_bank[pos + b] &= ~(1 << chunk_pos)
+                # 32-bit one's complement computed without a negative
+                # intermediate: both Python's ~x and np.uint32(~x) produce
+                # a negative signed value first, which newer numpy refuses
+                # to cast into a uint32 array element (OverflowError).
+                self.clause_bank[pos + b] &= (0xFFFFFFFF ^ (1 << chunk_pos))
 
     def get_ta_state(self, clause, ta):
         ta_chunk = ta // 32

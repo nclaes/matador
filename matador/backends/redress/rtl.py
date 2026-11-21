@@ -44,7 +44,11 @@ from matador.backends.base import ResourceEstimate, RTLArtifacts, RTLBackend
 
 _SRC_DIR = Path(__file__).parent / "src"
 _VERILATOR_DIR = Path(__file__).parent / "verilator"
+_COMMON_DIR = Path(__file__).parent.parent / "common" / "src"
 _STATIC_SOURCES = ("redress_bram.v", "score_acc_rt.v", "argmax_rt.v")
+# Sourced from matador/backends/common/src/ (shared across backends) rather
+# than this backend's own src/ — see common/README.md.
+_COMMON_SOURCES = {"argmax_rt.v"}
 
 
 def _clog2(n: int) -> int:
@@ -137,7 +141,8 @@ class RedressBackend(RTLBackend):
         sources = []
         for fname in _STATIC_SOURCES:
             dst = src_dir / fname
-            dst.write_text((_SRC_DIR / fname).read_text())
+            src = (_COMMON_DIR if fname in _COMMON_SOURCES else _SRC_DIR) / fname
+            dst.write_text(src.read_text())
             sources.append(dst)
 
         top_path = src_dir / "redress_accel.v"
@@ -587,6 +592,7 @@ class RedressBackend(RTLBackend):
                 wire                       m_tvalid;
                 reg                        m_tready;
                 wire                       m_tlast;
+                wire                       busy;
 
                 redress_accel #(
                     {dut_params}
@@ -595,7 +601,8 @@ class RedressBackend(RTLBackend):
                     .s_axis_tdata(s_tdata), .s_axis_tvalid(s_tvalid),
                     .s_axis_tready(s_tready), .s_axis_tlast(s_tlast),
                     .m_axis_tdata(m_tdata), .m_axis_tvalid(m_tvalid),
-                    .m_axis_tready(m_tready), .m_axis_tlast(m_tlast)
+                    .m_axis_tready(m_tready), .m_axis_tlast(m_tlast),
+                    .busy(busy)
                 );
 
                 initial clk = 0;

@@ -101,7 +101,7 @@ covers all 8 datasets in arXiv:2502.05640's Table 1.
 | Backend | Architecture |
 |---|---|
 | `vanilla_tiled` | Vanilla TM — sequential FSM + tile ROM. Knobs: `feat_slice`, `clause_slice`. |
-| `vanilla_hardwired` | Vanilla TM — HCB streaming + adder tree. Knobs: `pipeline_stages`. |
+| `vanilla_hardwired` | Vanilla TM — HCB streaming + adder tree. Knobs: `pipeline_stages`, `scoring_mode` (`full_hardwired` bespoke-generated tree, or `templated` — shared `adder_tree.v` + the same `argmax_rt.v` gp_tiled/redress use). |
 | `vanilla_gp_tiled` | Vanilla TM — runtime-reprogrammable tiled core (vendored from GP_TM_Inference_Accelerator). One synthesis, reprogrammable at runtime via AXI-Stream `CMD_LOAD` — no resynthesis to swap models. Capacity is checked against a target FPGA's BRAM budget. Knobs: `target_fpga`, `feat_slice`, `clause_slice`, `max_features`, `max_clauses_total`, `max_classes`. Multi-model/dataset reprogramming can be proven end to end with `matador reprogram-suite`. |
 | `redress` | Vanilla TM — runtime-reprogrammable MUSTANG Single-Core accelerator (16-bit Include-Encoded sparse instruction stream, REDRESS thesis Ch. 4.3/5.3). One synthesis, reprogrammable at runtime via an AXI-Stream Instruction-stream packet. `batch_width` (16/32/64) datapoints are classified in parallel per pass through the instruction stream — one shared decode feeding `batch_width` parallel vote-accumulator/argmax lanes. Knobs: `target_fpga`, `max_includes` (data-dependent compressed-size ceiling), `max_features`, `max_classes`, `batch_width`. Also supports `matador reprogram-suite`. |
 

@@ -49,8 +49,12 @@ from pathlib import Path
 from matador.backends.base import ResourceEstimate, RTLArtifacts, RTLBackend
 
 _VENDOR_DIR = Path(__file__).parent / "vendor"
+_COMMON_DIR = Path(__file__).parent.parent / "common" / "src"
 
 _STATIC_SOURCES = ("axis_fifo.v", "clause_eval.v", "tile_mem.v", "score_acc_rt.v", "argmax_rt.v")
+# Sourced from matador/backends/common/src/ (shared across backends) rather
+# than this backend's own vendor/src/ — see common/README.md.
+_COMMON_SOURCES = {"argmax_rt.v"}
 _STATIC_TESTBENCHES = ("tb_tile_mem.v", "tb_score_acc_rt.v", "tb_argmax_rt.v")
 _STATIC_VECTORS = (
     "gp_stimulus.memh", "gp_expected.memh",
@@ -129,7 +133,8 @@ class GPTiledBackend(RTLBackend):
         sources = []
         for fname in _STATIC_SOURCES:
             dst = src_dir / fname
-            dst.write_text((_VENDOR_DIR / "src" / fname).read_text())
+            src = (_COMMON_DIR if fname in _COMMON_SOURCES else _VENDOR_DIR / "src") / fname
+            dst.write_text(src.read_text())
             sources.append(dst)
 
         top_path = src_dir / "tm_accel_gp.v"

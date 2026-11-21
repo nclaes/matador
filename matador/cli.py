@@ -949,8 +949,8 @@ def reprogram_suite(backend_name: str, config_path: "Path | None", reprogram_con
     "--backend", "backend_name",
     required=True,
     type=click.Choice(list_backends()),
-    help="Backend whose standalone vector-generator JSON schema to export to "
-         "— currently only vanilla_gp_tiled has one (sim/gen_vectors.py).",
+    help="Backend to export the model.json schema for — vanilla_gp_tiled "
+         "(has a standalone sim/gen_vectors.py reader) or redress (same schema).",
 )
 @click.option(
     "--model", "model_path",
@@ -982,8 +982,11 @@ def export_model_json(backend_name: str, model_path: Path, output_path: "Path | 
     doesn't know matador's TMIR format and isn't meant to).
 
     \b
-    Requires --backend vanilla_gp_tiled currently (the only backend with a
-    standalone vector-generation tool in its exported bundle).
+    Supports --backend vanilla_gp_tiled and --backend redress. Both produce
+    the SAME JSON schema (name, n_features, n_classes, clauses_per_class,
+    include — TMIR's own Include bits reshaped, nothing backend-specific
+    about the shape itself); only vanilla_gp_tiled ships a standalone
+    gen_vectors.py that reads it directly today.
 
     \b
     Example:
@@ -996,12 +999,11 @@ def export_model_json(backend_name: str, model_path: Path, output_path: "Path | 
           -o my_stim.memh --expected my_exp.memh --testbench tb_my_model.v
     """
     import json
-    from matador.backends.registry import get as get_backend
     from matador.ir.tm_ir import TMIR
 
-    if backend_name != "vanilla_gp_tiled":
+    if backend_name not in ("vanilla_gp_tiled", "redress"):
         raise click.ClickException(
-            f"export-model-json only supports vanilla_gp_tiled currently, got {backend_name!r}."
+            f"export-model-json only supports vanilla_gp_tiled and redress currently, got {backend_name!r}."
         )
 
     from matador.backends.gp_tiled.tmir_bridge import tmir_to_tmmodel
@@ -1015,16 +1017,24 @@ def export_model_json(backend_name: str, model_path: Path, output_path: "Path | 
     try:
         model = tmir_to_tmmodel(tmir, name=model_path.stem)
     except Exception as exc:
-        raise click.ClickException(f"Model not compatible with vanilla_gp_tiled: {exc}") from exc
+        raise click.ClickException(f"Model not compatible with {backend_name}: {exc}") from exc
 
     if output_path is None:
         output_path = model_path.parent / f"{model_path.stem}_model.json"
 
     # Same shape as GPTiledBackend._gen_model_reference_json() writes into
     # every generated bundle's sim/model_reference.json — kept in exact sync
-    # since gen_vectors.py's load_model() is the single reader of both.
-    backend = get_backend(backend_name)()
-    output_path.write_text(backend._gen_model_reference_json(model))
+    # since gen_vectors.py's load_model() is the single reader of both, and
+    # the ONLY reader redress needs too (the schema carries no gp_tiled-
+    # specific fields — it's just TMIR's Include bits reshaped).
+    payload = {
+        "name": model.name,
+        "n_features": model.n_features,
+        "n_classes": model.n_classes,
+        "clauses_per_class": model.clauses_per_class,
+        "include": list(model.include),
+    }
+    output_path.write_text(json.dumps(payload, indent=2) + "\n")
 
     click.echo(f"Exported {model_path} -> {output_path}")
     click.echo("")

@@ -66,13 +66,26 @@ pipeline_stages: 2
 
 **What to change:** unlike `vanilla_gp_tiled`'s `max_features`/
 `max_clauses_total`/`target_fpga` (a capacity ceiling for *any* model
-you'll ever load), `vanilla_hardwired`'s only real design knob is
-`pipeline_stages` — how many register stages the adder tree that sums
-clause votes is split into. `0` is fully combinational (shortest latency,
-deepest combinational path); higher values add pipeline registers (longer
-latency, shorter critical path, likely a higher achievable clock frequency
-after synthesis). `2` here is an arbitrary middle value for the demo —
-tune it against your actual timing closure results.
+you'll ever load), `vanilla_hardwired`'s two real design knobs are
+`pipeline_stages` and `scoring_mode`:
+
+- `pipeline_stages` — how many register stages the adder tree that sums
+  clause votes is split into. `0` is fully combinational (shortest latency,
+  deepest combinational path); higher values add pipeline registers (longer
+  latency, shorter critical path, likely a higher achievable clock frequency
+  after synthesis). `2` here is an arbitrary middle value for the demo —
+  tune it against your actual timing closure results.
+- `scoring_mode` — `full_hardwired` (default, used throughout this
+  walkthrough): `hw_score.v` is bespoke Python-generated Verilog per model,
+  with `pipeline_stages` register levels placed inside the hand-built tree.
+  `templated`: `hw_score.v` instead instantiates two small, static, reusable
+  modules per class — `adder_tree.v` (a generic parameterized popcount tree)
+  and `argmax_rt.v` (the SAME combinational argmax `vanilla_gp_tiled` and
+  `redress` already use, from `matador/backends/common/src/`) — trading
+  `pipeline_stages`' full N-level tuning for one shared, already-tested
+  implementation. Both modes produce bit-identical predictions (verified in
+  `tests/backends/test_hardwired.py`); pick `templated` when you'd rather
+  read/reuse two small static modules than a bespoke generated tree.
 
 ```bash
 matador generate --backend vanilla_hardwired --config /work/vanilla_hardwired.yaml

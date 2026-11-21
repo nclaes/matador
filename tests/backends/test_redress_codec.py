@@ -163,6 +163,74 @@ def test_mustang_matches_classic_redress():
     np.testing.assert_array_equal(mustang_scores, classic_scores)
 
 
+def _canonical_class_masks(inc: np.ndarray, n_classes: int, cpc: int) -> list:
+    """Per-class SET of non-empty clause literal-masks -- the right
+    equivalence for comparing two include arrays that may legitimately
+    differ in which clause SLOT a given non-empty clause landed in (see
+    mustang_decode_to_includes()'s own docstring for why exact positional
+    equality is the wrong bar whenever a class has an interior empty
+    clause)."""
+    return [
+        {tuple(inc[c, k].tolist()) for k in range(cpc) if inc[c, k].any()}
+        for c in range(n_classes)
+    ]
+
+
+@pytest.mark.parametrize(
+    "n_features,n_classes,cpc,density",
+    [
+        (8, 2, 4, 0.3),
+        (10, 3, 6, 0.02),    # sparse enough to reliably produce interior empty clauses
+        (16, 3, 6, 0.1),
+        (32, 5, 10, 0.05),
+        (5, 2, 2, 1.0),      # fully dense
+    ],
+)
+def test_mustang_decode_to_includes_round_trips(n_features, n_classes, cpc, density):
+    tmir = _make_tmir(n_features, n_classes, cpc, density, seed=n_features * 31 + cpc)
+    try:
+        E_words = codec.mustang_encode(tmir)
+    except codec.MustangEmptyClassError:
+        pytest.skip("random draw hit an empty class -- covered by a dedicated test")
+
+    inc = np.asarray(tmir.representation.includes, dtype=bool)
+    decoded = codec.mustang_decode_to_includes(E_words, n_classes, cpc, n_features)
+
+    assert decoded.shape == inc.shape
+    assert _canonical_class_masks(decoded, n_classes, cpc) == _canonical_class_masks(inc, n_classes, cpc)
+
+    # Inference-equivalence, not just "same set of clause masks exists
+    # somewhere" -- this is the bar that actually matters (a real bug was
+    # caught here: an earlier version compacted transmitted clauses across
+    # the WHOLE [0, cpc) slot range in transmission order, silently
+    # corrupting polarity whenever a class had an empty clause in only one
+    # of its two polarity halves, since polarity is inferred from
+    # `slot < cpc // 2`, never stored per-slot).
+    decoded_tmir = _make_tmir(n_features, n_classes, cpc, 0.0, seed=0)
+    decoded_tmir.representation.includes = decoded
+    X = _random_X(n_samples=40, n_features=n_features, seed=99)
+    orig_pred, orig_scores = predict(tmir, X)
+    dec_pred, dec_scores = predict(decoded_tmir, X)
+    np.testing.assert_array_equal(dec_pred, orig_pred)
+    np.testing.assert_array_equal(dec_scores, orig_scores)
+
+
+def test_mustang_decode_to_includes_rejects_cpc_too_small():
+    tmir = _make_tmir(8, 2, 6, 0.9, seed=1)  # dense -> every clause non-empty
+    E_words = codec.mustang_encode(tmir)
+    with pytest.raises(ValueError, match="cpc"):
+        codec.mustang_decode_to_includes(E_words, n_classes=2, cpc=3, n_features=8)
+
+
+def test_mustang_decode_to_includes_rejects_wrong_n_classes():
+    tmir = _make_tmir(8, 3, 4, 0.3, seed=2)
+    for c in range(3):
+        tmir.representation.includes[c, 0, 0] = True  # guarantee non-empty
+    E_words = codec.mustang_encode(tmir)
+    with pytest.raises(ValueError, match="n_classes"):
+        codec.mustang_decode_to_includes(E_words, n_classes=2, cpc=4, n_features=8)
+
+
 def test_mustang_matches_reference_many_random_trials():
     """Broader random sweep, same spirit as the classic-REDRESS one above.
     Trials that happen to draw a fully-empty class are skipped (that's a
