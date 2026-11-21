@@ -22,7 +22,14 @@ from matador.backends.redress.emulator import RedressEmulator
 from matador.backends.redress.rtl import RedressBackend
 from matador.backends.registry import config_class_for, get, list_backends
 from matador.inference.reference import predict
-from matador.ir.tm_ir import Architecture, EvalVector, Hyperparameters, Representation, TMIR, Verification
+from matador.ir.tm_ir import (
+    TMIR,
+    Architecture,
+    EvalVector,
+    Hyperparameters,
+    Representation,
+    Verification,
+)
 
 _HAVE_IVERILOG = shutil.which("iverilog") is not None
 _HAVE_VERILATOR = shutil.which("verilator") is not None
@@ -51,7 +58,11 @@ def _make_tmir(n_features=15, n_classes=2, cpc=8, density=0.3, n_samples=8, seed
     X = (rng.random((n_samples, n_features)) < 0.5).astype(np.uint8)
     preds, scores = predict(tmir, X)
     tmir.verification = Verification(test_vectors=[
-        EvalVector(input=X[i].tolist(), expected_class=int(preds[i]), expected_scores=scores[i].tolist())
+        EvalVector(
+            input=X[i].tolist(),
+            expected_class=int(preds[i]),
+            expected_scores=scores[i].tolist(),
+        )
         for i in range(len(X))
     ])
     return tmir
@@ -195,7 +206,8 @@ def test_generate_writes_expected_files(tmp_path):
     assert "tb_redress_model.v" in tb_names
     sim_names = {p.name for p in artifacts.sim_scripts}
     assert {"model_stimulus.memh", "model_expected.memh", "run_iverilog.sh",
-            "test_vectors.txt", "tb_redress_model.gtkw", "provenance.json", "README.md"} <= sim_names
+            "test_vectors.txt", "tb_redress_model.gtkw", "provenance.json",
+            "README.md"} <= sim_names
     assert (artifacts.rtl_dir / "sim" / "verilator" / "Makefile").exists()
     assert (artifacts.rtl_dir / "sim" / "verilator" / "tb_top.cpp").exists()
 
@@ -309,6 +321,33 @@ def test_rtl_simulation_multi_batch_passes(tmp_path):
 
 
 @pytest.mark.skipif(not _HAVE_IVERILOG, reason="iverilog not installed")
+@pytest.mark.parametrize(
+    "n_classes,max_classes",
+    [(2, 16), (3, 4), (2, 2), (4, 4), (16, 16)],
+    ids=lambda v: str(v),
+)
+def test_rtl_simulation_n_classes_vs_max_classes(tmp_path, n_classes, max_classes):
+    """argmax must consider every loaded class, including when the model
+    fills max_classes exactly and that capacity is a power of two (then
+    n_classes needs CLASS_WIDTH+1 bits to represent). Uses 32 vectors -- one
+    full batch -- so a wrong class count shows up as real mispredictions,
+    not a lucky all-class-0 match."""
+    tmir = _make_tmir(n_features=15, n_classes=n_classes, cpc=8, density=0.08,
+                      n_samples=32, seed=10 + n_classes)
+    preds = {tv.expected_class for tv in tmir.verification.test_vectors}
+    assert preds - {0}, "fixture must expect some non-zero classes to be a real check"
+
+    cfg = _make_cfg(tmp_path, tmir=tmir, max_classes=max_classes)
+    artifacts = RedressBackend().generate(tmir, cfg)
+
+    sim_dir = artifacts.rtl_dir / "sim"
+    tb_path = [p for p in artifacts.testbenches if p.name == "tb_redress_model.v"][0]
+    output = _run_iverilog(artifacts.sources, tb_path, sim_dir)
+    assert f"ALL {cfg.batch_width} TESTS PASSED" in output, output
+    assert "FAIL" not in output
+
+
+@pytest.mark.skipif(not _HAVE_IVERILOG, reason="iverilog not installed")
 def test_rtl_simulation_handles_no_embedded_vectors(tmp_path):
     """A model with no verification.test_vectors still generates a valid
     (load-only) testbench rather than an empty/degenerate one."""
@@ -353,7 +392,9 @@ def test_verilator_harness_passes_against_model_specific_vectors(tmp_path):
     artifacts = backend.generate(tmir, cfg)
 
     verilator_dir = artifacts.rtl_dir / "sim" / "verilator"
-    build_cp = subprocess.run(["make", "-C", str(verilator_dir), "all"], capture_output=True, text=True)
+    build_cp = subprocess.run(
+        ["make", "-C", str(verilator_dir), "all"], capture_output=True, text=True
+    )
     assert build_cp.returncode == 0, build_cp.stdout + build_cp.stderr
 
     bin_path = verilator_dir / "obj_dir" / "Vredress_accel"

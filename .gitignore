@@ -94,3 +94,6 @@ data/*
 !data/Digits
 !data/Digits/*
 data.zip
+
+# Local reference copy, not part of the repo
+Thesis.pdf

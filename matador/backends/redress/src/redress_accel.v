@@ -241,6 +241,15 @@ module redress_accel #(
     wire [SCORE_WIDTH*MAX_CLASSES-1:0] scores_flat [0:BATCH_WIDTH-1];
     wire [CLASS_WIDTH-1:0]             pred_class  [0:BATCH_WIDTH-1];
 
+    // argmax_rt's n_classes port is CLASS_WIDTH+1 bits wide, because a full
+    // power-of-two model (n_classes == MAX_CLASSES == 2**CLASS_WIDTH) needs
+    // that extra bit. Passing only hdr_n_classes[CLASS_WIDTH-1:0] dropped
+    // it, so such a model looked like n_classes = 0 and argmax only ever
+    // chose class 0. Zero-extend first so the slice stays in range even
+    // when CLASS_WIDTH+1 exceeds the 8-bit header field.
+    wire [CLASS_WIDTH+8:0]             hdr_n_classes_ext = {{(CLASS_WIDTH+1){1'b0}}, hdr_n_classes};
+    wire [CLASS_WIDTH:0]               argmax_n_classes  = hdr_n_classes_ext[CLASS_WIDTH:0];
+
     generate
         for (gi = 0; gi < BATCH_WIDTH; gi = gi + 1) begin : lanes
             score_acc_rt #(
@@ -258,7 +267,7 @@ module redress_accel #(
                 .N_CLASSES(MAX_CLASSES), .SCORE_WIDTH(SCORE_WIDTH), .CLASS_WIDTH(CLASS_WIDTH)
             ) amax (
                 .scores_flat(scores_flat[gi]),
-                .n_classes({1'b0, hdr_n_classes[CLASS_WIDTH-1:0]}),
+                .n_classes(argmax_n_classes),
                 .pred_class(pred_class[gi])
             );
         end
