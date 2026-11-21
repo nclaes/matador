@@ -63,8 +63,10 @@ def decode_faithful(
     e_depth: int = 0,
     cc_lookahead: bool = False,
     e_init: int | None = None,
+    class_trace: list[int] | None = None,
 ) -> tuple[list[int], np.ndarray]:
-    """Run one batch through the decoder exactly as redress_accel.v does.
+    """Run one batch through the decoder exactly as redress_accel.v does
+    (e_depth=0, cc_lookahead=False) or as redress_la_accel.v does.
 
     Args:
         words:       Instruction Memory contents (possibly corrupted).
@@ -72,26 +74,42 @@ def decode_faithful(
         X_pack:      Feature FIFO contents: one W-bit int per loaded feature.
         W:           BATCH_WIDTH.
         class_width, max_classes, feat_addr_w: RTL parameters (see Geometry).
-        e_depth, cc_lookahead, e_init: look-ahead options. In this stage only
-            the as-built decoder (0, False, None) exists.
+        e_depth:     E look-ahead depth. 0 = as built. d > 0 accepts an E change
+                     only if the next d words exist and all carry the new E;
+                     a rejected change leaves the E latch untouched.
+        cc_lookahead: the same rule for CC, one word deep.
+        e_init:      E latch value at batch start when e_depth > 0 (default 1,
+                     class 0's E). The latch then counts as already set, so
+                     word 0 is checked too. Ignored when e_depth == 0.
+        class_trace: if given, the (wrapped) class index each word is
+                     accumulated into is appended to it.
 
     Returns:
         (pred_class per lane, scores array of shape (W, max_classes)).
     """
-    if e_depth != 0 or cc_lookahead or e_init is not None:
-        raise NotImplementedError("look-ahead decoding is added in Stage 3")
+    if e_depth < 0:
+        raise ValueError(f"e_depth must be >= 0, got {e_depth}")
+    n_words = len(words)
+
+    def e_bit(w: int) -> int:
+        return (w >> 13) & 1
+
+    def cc_bit(w: int) -> int:
+        return (w >> 14) & 1
 
     full = (1 << W) - 1
     class_mod = 1 << class_width
     feat_mask = (1 << feat_addr_w) - 1
     n_feat_loaded = len(X_pack)
 
-    # Batch start, S_LOAD_FEAT TLAST (redress_accel.v:336-340)
+    # Batch start, S_LOAD_FEAT TLAST (redress_accel.v:336-340). With E
+    # look-ahead the E latch starts at a known value and counts as set.
     have_clause = False
-    have_class = False
+    have_class = e_depth > 0
     clause_mask = full
     current_class = 0
-    P_prev = CC_prev = E_prev = 0  # X in the RTL; never read before first latch
+    P_prev = CC_prev = 0  # X in the RTL; never read before the first latch
+    E_prev = (1 if e_init is None else e_init) if e_depth > 0 else 0
     # score_acc_rt is cleared at batch start (acc_clear). Votes are recorded as
     # (class, sign, mask) and summed per lane at the end.
     votes: list[tuple[int, int, int]] = []
@@ -103,7 +121,7 @@ def decode_faithful(
         if current_class < max_classes:
             votes.append((current_class, -1 if P_prev else 1, clause_mask))
 
-    for word in words:
+    for i, word in enumerate(words):
         # S_INFER_DECODE (redress_accel.v:356-361): latch, issue feature read.
         # feat_raddr is FEAT_ADDR_W bits wide, so the 12-bit offset truncates.
         P, CC, E, offset, L = _field(word)
@@ -114,7 +132,16 @@ def decode_faithful(
 
         # S_INFER_ACCUM (redress_accel.v:371-411)
         class_boundary = have_class and E_prev != E        # :211
+        if class_boundary and e_depth > 0:
+            # Look-ahead: the next e_depth words must exist and agree. A
+            # rejected change is treated as a flipped bit: no boundary, and the
+            # latch below keeps its old value.
+            class_boundary = i + e_depth < n_words and all(
+                e_bit(words[i + k]) == E for k in range(1, e_depth + 1)
+            )
         clause_boundary = have_clause and CC_prev != CC    # :212
+        if clause_boundary and cc_lookahead:
+            clause_boundary = i + 1 < n_words and cc_bit(words[i + 1]) == CC
         flush_this_cycle = class_boundary or clause_boundary  # :213
 
         if flush_this_cycle:  # flush_pulse uses the OLD clause_mask and class
@@ -131,6 +158,8 @@ def decode_faithful(
         if not have_clause or flush_this_cycle:           # :397-401
             P_prev, CC_prev = P, CC
             have_clause = True
+        if class_trace is not None:
+            class_trace.append(current_class)
 
     # S_INFER_FINAL (redress_accel.v:413-423): unconditional final flush.
     if words:

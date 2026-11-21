@@ -47,6 +47,11 @@ class Variant:
 
 VARIANTS = {
     "v0": Variant("v0", "as built"),
+    "v3": Variant("v3", "E look-ahead", e_depth=1),
+    "v4": Variant("v4", "E and CC look-ahead", e_depth=1, cc_lookahead=True),
+    "v3d2": Variant("v3d2", "E look-ahead, two words (software only)", e_depth=2),
+    "v4d2": Variant("v4d2", "E (two words) and CC look-ahead (software only)", e_depth=2,
+                    cc_lookahead=True),
 }
 
 
