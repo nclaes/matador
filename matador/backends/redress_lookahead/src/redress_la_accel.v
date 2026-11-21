@@ -12,9 +12,15 @@
 //   The next word costs no extra cycle: Instruction Memory is idle during
 //   S_INFER_FEAT, so S_INFER_DECODE issues the read of word ptr+1 and its
 //   data is on instr_rdata in S_INFER_ACCUM, where the boundary is decided.
+//   E_LA_DEPTH = 2: accept an E change only if the next TWO words exist and
+//     both carry the new E -- survives two flipped E bits in adjacent words
+//     (classes padded to >= 7 words). Still no extra cycle: S_INFER_INSTR,
+//     also an idle read slot, issues the read of word ptr+2; its data is on
+//     instr_rdata in S_INFER_FEAT and is captured into E_next2 (one flip-flop)
+//     before S_INFER_DECODE's read of ptr+1 lands for S_INFER_ACCUM.
 //   With E_LA_DEPTH = CC_LA = 0 this module behaves exactly like
 //   redress_accel (no extra read is issued).
-//   Only depths 0 and 1 are implemented; the generator rejects others.
+//   Depths 0, 1 and 2 are implemented; the generator rejects others.
 // -----------------------------------------------------------------------------
 // Below: the original redress_accel header.
 // redress_accel — REDRESS/MUSTANG accelerator: runtime-reprogrammable,
@@ -116,7 +122,7 @@ module redress_la_accel #(
     parameter BATCH_WIDTH     = 32,
     parameter OUT_IDX_W       = 6,   // $clog2(BATCH_WIDTH)
     parameter SCORE_WIDTH     = 14,
-    parameter E_LA_DEPTH      = 1,   // 0 = as built, 1 = one-word E look-ahead
+    parameter E_LA_DEPTH      = 1,   // 0 = as built, 1/2 = one/two-word E look-ahead
     parameter CC_LA           = 1    // 0 = as built, 1 = one-word CC look-ahead
 )(
     input  wire                        clk,
@@ -138,6 +144,7 @@ module redress_la_accel #(
     localparam OFFSET_W = 12; // fixed by the MUSTANG instruction word layout
     localparam E_INIT   = 1'b1; // class 0's E (mustang_encode toggles E from 0 before class 0)
     localparam LA_READ  = (E_LA_DEPTH != 0) || (CC_LA != 0);
+    localparam [INSTR_ADDR_W-1:0] PTR_PLUS2 = 2;  // depth-2 read offset, full width
 
     // ── FSM states ───────────────────────────────────────────────────────
     // Every BRAM read (redress_bram) is itself registered -- re/raddr must
@@ -235,7 +242,14 @@ module redress_la_accel #(
     wire                      have_next  = (ptr != hdr_n_instr);
     wire                      E_next     = instr_rdata[13];
     wire                      CC_next    = instr_rdata[14];
-    wire                      e_confirm  = (E_LA_DEPTH == 0) || (have_next && (E_next  == E_cur));
+    // Depth 2: word ptr+2's E, read in S_INFER_INSTR and captured in
+    // S_INFER_FEAT. Stale when there is no word ptr+2, so have_next2 gates it.
+    wire                      have_next2 = have_next && (ptr + 1'b1 != hdr_n_instr);
+    reg                       E_next2;
+    wire                      e_confirm  = (E_LA_DEPTH == 0) ||
+                                           ((E_LA_DEPTH == 1) ? (have_next && (E_next == E_cur))
+                                                              : (have_next2 && (E_next == E_cur) &&
+                                                                 (E_next2 == E_cur)));
     wire                      cc_confirm = (CC_LA == 0)      || (have_next && (CC_next == CC_cur));
 
     wire class_boundary  = have_class  && (E_cur  != E_prev)  && e_confirm;
@@ -383,6 +397,13 @@ module redress_la_accel #(
                     // entering this state (either from S_LOAD_FEAT's TLAST
                     // cycle, or from S_INFER_ACCUM below); this state just
                     // waits out the 1-cycle BRAM read latency.
+                    // Depth-2 look-ahead read in this idle slot: word ptr+2
+                    // lands on instr_rdata in S_INFER_FEAT (after DECODE has
+                    // latched word ptr, before DECODE's ptr+1 read lands).
+                    if ((E_LA_DEPTH >= 2) && have_next2) begin
+                        instr_re    <= 1'b1;
+                        instr_raddr <= ptr + PTR_PLUS2;
+                    end
                     state <= S_INFER_DECODE;
                 end
 
@@ -404,6 +425,8 @@ module redress_la_accel #(
                     // DECODE, above); this state just waits out redress_
                     // bram's own 1-cycle read latency, same idiom as
                     // S_INFER_INSTR for the instruction side.
+                    if (E_LA_DEPTH >= 2)
+                        E_next2 <= instr_rdata[13];  // word ptr+2 (gated by have_next2)
                     state <= S_INFER_ACCUM;
                 end
 

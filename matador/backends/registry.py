@@ -38,7 +38,7 @@ _DESCRIPTIONS: dict[str, str] = {
                          "max_classes, batch_width.",
     "redress_lookahead": "redress with E/CC look-ahead decoding: a single flipped E/CC bit in "
                          "Instruction Memory no longer shifts every later class/clause. No extra "
-                         "cycles. Knobs: redress's, plus e_lookahead_depth (0/1), cc_lookahead.",
+                         "cycles. Knobs: redress's, plus e_lookahead_depth (0/1/2), cc_lookahead.",
 }
 
 

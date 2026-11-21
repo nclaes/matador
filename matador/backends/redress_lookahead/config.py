@@ -11,10 +11,9 @@ from pydantic import Field, field_validator
 
 from matador.backends.redress.config import RedressAcceleratorConfig
 
-# Depths with an RTL implementation. Depth 2 exists only in the software model
-# (decode_faithful / campaign), because a two-word look-ahead needs a prefetch
-# window, not just the one idle read slot (see STAGE_4 README).
-RTL_E_DEPTHS = (0, 1)
+# Depths with an RTL implementation. Depth 2 uses a second idle read slot
+# (S_INFER_INSTR) plus one flip-flop; still no extra cycles.
+RTL_E_DEPTHS = (0, 1, 2)
 
 
 class RedressLookaheadConfig(RedressAcceleratorConfig):
@@ -24,8 +23,10 @@ class RedressLookaheadConfig(RedressAcceleratorConfig):
         default=1,
         description=(
             "E look-ahead depth: 0 = as built (a single E flip shifts every later "
-            "class), 1 = accept an E change only if the next word carries it. "
-            "Classes are padded to at least 4 words at depth 1."
+            "class), 1 = accept an E change only if the next word carries it "
+            "(classes padded to >= 4 words; survives single flips), 2 = only if the "
+            "next two words carry it (classes padded to >= 7 words; also survives "
+            "two flipped E bits in adjacent words)."
         ),
     )
     cc_lookahead: bool = Field(
@@ -42,9 +43,7 @@ class RedressLookaheadConfig(RedressAcceleratorConfig):
         if v not in RTL_E_DEPTHS:
             raise ValueError(
                 f"e_lookahead_depth={v} has no RTL implementation (supported: "
-                f"{', '.join(map(str, RTL_E_DEPTHS))}). Depth 2 is available in the "
-                "software model only: python -m matador.backends.redress_lookahead."
-                "campaign --variant v3d2 v4d2"
+                f"{', '.join(map(str, RTL_E_DEPTHS))})."
             )
         return v
 

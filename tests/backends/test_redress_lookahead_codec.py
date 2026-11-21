@@ -149,9 +149,9 @@ def test_minimum_class_length_table(capsys):
             print(f"[min class length]  {d:>7} | {single:>11} | {adjacent:>18}")
     assert table[(0, 1)] is None            # as built: interior E flips always cascade
     assert table[(1, 1)] == MIN_CLASS_WORDS[1] == 4
-    assert table[(2, 1)] == MIN_CLASS_WORDS[2] == 6
+    assert table[(2, 1)] == 6
     assert table[(1, 2)] is None            # one-word look-ahead can't survive adjacent flips
-    assert table[(2, 2)] == 7
+    assert table[(2, 2)] == MIN_CLASS_WORDS[2] == 7  # depth 2 pads for adjacent flips
 
 
 def test_three_word_class_fails_with_one_word_lookahead():

@@ -25,10 +25,14 @@ from __future__ import annotations
 
 from matador.backends.redress.codec import mustang_encode
 
-# Minimum words per class so that no single E flip shifts any class beyond
-# the flipped word's neighbours, for each E look-ahead depth. Depth 0 has no
-# such length (every interior E flip cascades), so no padding is done.
-MIN_CLASS_WORDS = {0: 1, 1: 4, 2: 6}
+# Words per class that each E look-ahead depth pads to, chosen from the
+# exhaustive search in tests/backends/test_redress_lookahead_codec.py:
+#   depth 1: 4 -- the minimum for which no SINGLE E flip cascades. (No length
+#            survives two adjacent flips at depth 1.)
+#   depth 2: 7 -- the minimum for which no pair of ADJACENT E flips cascades,
+#            the reason to choose depth 2 (single flips need only 6).
+# Depth 0 has no such length (every interior E flip cascades): no padding.
+MIN_CLASS_WORDS = {0: 1, 1: 4, 2: 7}
 
 
 def split_stream(words: list[int]) -> list[list[list[int]]]:

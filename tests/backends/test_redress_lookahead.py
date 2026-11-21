@@ -72,7 +72,7 @@ def test_config_defaults_and_inheritance(tmp_path):
     assert cfg.decoder_mode == {"e_depth": 1, "cc_lookahead": True, "e_init": 1}
 
 
-@pytest.mark.parametrize("depth", [2, 3, -1])
+@pytest.mark.parametrize("depth", [3, -1])
 def test_config_rejects_unimplemented_depths(tmp_path, depth):
     with pytest.raises(ValueError, match="no RTL implementation"):
         _cfg(tmp_path, _tmir(), e_lookahead_depth=depth)
@@ -85,7 +85,7 @@ def test_config_still_enforces_redress_budget(tmp_path):
 
 # ── emulator ─────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("depth,cc", [(0, False), (1, False), (1, True)])
+@pytest.mark.parametrize("depth,cc", [(0, False), (1, False), (1, True), (2, True)])
 def test_emulator_matches_reference(tmp_path, depth, cc):
     tmir = _tmir(n_classes=4, n_samples=30, seed=3)
     emu = RedressLookaheadEmulator(tmir, _cfg(tmp_path, tmir, e_lookahead_depth=depth,
@@ -191,9 +191,10 @@ def test_rtl_simulation_passes(tmp_path, n_samples):
 
 
 @pytest.mark.skipif(not _HAVE_VERILATOR, reason="verilator not installed")
-def test_verilator_harness_passes(tmp_path):
+@pytest.mark.parametrize("depth", [1, 2])
+def test_verilator_harness_passes(tmp_path, depth):
     tmir = _tmir(n_classes=4, n_samples=70, seed=8)
-    art = RedressLookaheadBackend().generate(tmir, _cfg(tmp_path, tmir))
+    art = RedressLookaheadBackend().generate(tmir, _cfg(tmp_path, tmir, e_lookahead_depth=depth))
     vdir = art.rtl_dir / "sim" / "verilator"
     build = subprocess.run(["make", "-C", str(vdir), "all"], capture_output=True, text=True)
     assert build.returncode == 0, build.stdout[-1000:] + build.stderr[-1000:]

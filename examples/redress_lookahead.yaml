@@ -11,11 +11,13 @@
 # spurious class boundaries, so every later class is decoded two classes too
 # high. With look-ahead, an E (or CC) change is accepted only if the NEXT word
 # carries the same new value; otherwise it is treated as a flip and ignored.
-# The next word is read in Instruction Memory's idle slot: no extra cycles.
+# Depth 2 requires the next TWO words to agree, which also survives two flipped
+# E bits in adjacent words. The look-ahead words are read in Instruction
+# Memory's idle slots: no extra cycles at either depth.
 #
 # The stored format is unchanged. The encoder only adds words: classes are
-# padded to at least 4 words (e_lookahead_depth 1), and every one-literal
-# clause's literal is stored twice (cc_lookahead). A hardened stream still
+# padded to at least 4 words (e_lookahead_depth 1) or 7 (depth 2), and
+# every one-literal clause's literal is stored twice (cc_lookahead). A hardened stream still
 # decodes correctly on the plain redress backend.
 #
 # Measure the effect yourself:
@@ -43,9 +45,11 @@ max_classes: 16
 
 # ── look-ahead ──────────────────────────────────────────────────────────
 # 0 = as built (identical to the redress backend, including under faults)
-# 1 = accept an E change only if the next word carries it (v3 in the strawman)
-# 2 is not implemented in RTL (it needs a prefetch window); the campaign can
-#     evaluate it in software: --variant v3d2 v4d2
+# 1 = accept an E change only if the next word carries it (v3 in the strawman);
+#     survives any single flipped E bit
+# 2 = accept it only if the next two words carry it; also survives two flipped
+#     E bits in adjacent words (costs 1 flip-flop and longer class padding)
+# Compare them on your model: campaign --variant v0 v3 v4 v3d2 v4d2
 e_lookahead_depth: 1
 
 # Apply the same one-word rule to CC (v4 = depth 1 + this). Costs the

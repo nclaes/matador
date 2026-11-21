@@ -25,7 +25,7 @@ from matador.inference.reference import predict
 _HAVE_IVERILOG = shutil.which("iverilog") is not None
 pytestmark = pytest.mark.skipif(not _HAVE_IVERILOG, reason="iverilog not installed")
 
-COMBOS = [(0, False), (0, True), (1, False), (1, True)]
+COMBOS = [(0, False), (0, True), (1, False), (1, True), (2, False), (2, True)]
 
 
 def _cfg(tmp_path, tmir, e_depth=1, cc=True, **overrides) -> RedressLookaheadConfig:
@@ -85,7 +85,7 @@ def _replay_picks(words, n_features, feat_addr_w, seed, per_field=4):
     return picks
 
 
-@pytest.mark.parametrize("e_depth,cc", [(1, True), (1, False)], ids=lambda v: str(v))
+@pytest.mark.parametrize("e_depth,cc", [(1, True), (1, False), (2, True)], ids=lambda v: str(v))
 def test_corrupted_replay_lookahead_rtl_matches_faithful(tmp_path, e_depth, cc):
     tmir = _model(seed=1, n_samples=40)
     cfg = _cfg(tmp_path / "base", tmir, e_depth, cc)
@@ -132,9 +132,12 @@ def test_interior_e_flips_change_nothing_with_lookahead(tmp_path):
         assert (predict_batches(flipped, 4, X, 32, g) != clean).any()
 
 
-@pytest.mark.parametrize("where,bit", [("last", 13), ("last", 14), ("first", 13)],
-                         ids=["last-E", "last-CC", "first-E"])
-def test_stream_edge_flips(tmp_path, where, bit):
+@pytest.mark.parametrize("depth,where,bit", [
+    (1, "last", 13), (1, "last", 14), (1, "first", 13),
+    (2, "last", 13), (2, "second-last", 13), (2, "last-two", 13), (2, "first", 13),
+], ids=["d1-last-E", "d1-last-CC", "d1-first-E",
+        "d2-last-E", "d2-second-last-E", "d2-last-two-E", "d2-first-E"])
+def test_stream_edge_flips(tmp_path, depth, where, bit):
     """The two ends of the stream need their own rules, and only flips there
     show whether the RTL has them -- random replays almost never land there.
 
@@ -143,13 +146,22 @@ def test_stream_edge_flips(tmp_path, where, bit):
                 is issued), so the stale 'next' word always confirms.
     first word: E_prev must start at E_INIT = 1 with have_class set. If word 0
                 were latched unchecked (as built), a flipped E on word 0 would
-                be accepted at word 1 and every class would shift."""
+                be accepted at word 1 and every class would shift.
+    last two (depth 2): the change at the second-to-last word IS confirmed by
+                the last word, and only the missing word ptr+2 (have_next2)
+                can reject it. Without that gate the RTL reads past the end
+                of the stream."""
     tmir = _model(seed=5, n_samples=64)
-    cfg = _cfg(tmp_path / "base", tmir, 1, True)
+    cfg = _cfg(tmp_path / "base", tmir, depth, True)
     words = RedressLookaheadBackend().encode_stream(tmir, cfg)
     X = np.array([tv.input for tv in tmir.verification.test_vectors], dtype=np.uint8)
     g = Geometry.from_config(cfg)
-    flipped = flip(words, len(words) - 1 if where == "last" else 0, bit)
+    n = len(words)
+    indices = {"last": [n - 1], "second-last": [n - 2], "last-two": [n - 2, n - 1],
+               "first": [0]}[where]
+    flipped = words
+    for index in indices:
+        flipped = flip(flipped, index, bit)
 
     la = predict_batches(flipped, 4, X, 32, g, **cfg.decoder_mode)
     accepted = predict_batches(flipped, 4, X, 32, g)  # as-built rule accepts the change
@@ -161,11 +173,12 @@ def test_stream_edge_flips(tmp_path, where, bit):
     assert ok, out[-300:]
 
 
-def test_lookahead_adds_no_cycles(tmp_path):
+@pytest.mark.parametrize("depth", [1, 2])
+def test_lookahead_adds_no_cycles(tmp_path, depth):
     """Same Instruction Memory contents, same vectors: redress_accel and
     redress_la_accel finish at exactly the same simulation time."""
     tmir = _model(seed=4, n_samples=64)
-    cfg = _cfg(tmp_path / "base", tmir, 1, True)
+    cfg = _cfg(tmp_path / "base", tmir, depth, True)
     words = RedressLookaheadBackend().encode_stream(tmir, cfg)
 
     times = {}
@@ -186,7 +199,72 @@ def test_gtkw_has_lookahead_group(tmp_path):
         assert f"tb_redress_model.dut.{sig}" in gtkw
 
 
-def test_config_rejects_depth_two(tmp_path):
+@pytest.mark.parametrize("depth,flip_last", [(1, 1), (2, 2)], ids=["d1", "d2"])
+@pytest.mark.parametrize("fill", [0x0000, 0xFFFF], ids=["fill0", "fill1"])
+def test_memory_beyond_the_stream_is_never_used(tmp_path, depth, flip_last, fill):
+    """Instruction Memory past the loaded stream holds whatever an earlier,
+    longer model left there. Simulation would show it as X, and `if (X)` takes
+    the else branch -- which here happens to mean "reject" -- so an RTL that
+    reads past the end can pass in simulation and fail in silicon. Pre-fill
+    the memory with real data (all E = 0 and all E = 1) and flip the E of the
+    last `flip_last` words, so a read past the end would be consulted."""
+    tmir = _model(seed=5, n_samples=64)
+    cfg = _cfg(tmp_path / "base", tmir, depth, True)
+    words = RedressLookaheadBackend().encode_stream(tmir, cfg)
+    flipped = words
+    for i in range(len(words) - flip_last, len(words)):
+        flipped = flip(flipped, i, 13)
+    art = build_replay_bundle(tmir, flipped, cfg.model_copy(update={"output_dir": tmp_path / "r"}),
+                              mode=cfg.decoder_mode, backend_cls=RedressLookaheadBackend)
+    tb = art.rtl_dir / "tb" / "tb_redress_model.v"
+    text = tb.read_text()
+    head, sep, tail = text.rpartition("endmodule")
+    tb.write_text(head + f"""
+    // Stale Instruction Memory, as left by a previously loaded longer model.
+    integer fill_k;
+    initial for (fill_k = 0; fill_k < {cfg.max_includes}; fill_k = fill_k + 1)
+        dut.instr_mem.mem[fill_k] = 16'h{fill:04x};
+""" + sep + tail)
+    ok, out = run_iverilog(art)
+    assert ok, out[-300:]
+
+
+def test_config_rejects_depth_three(tmp_path):
     tmir = _model(n_samples=8)
     with pytest.raises(ValueError, match="no RTL implementation"):
-        _cfg(tmp_path, tmir, e_depth=2)
+        _cfg(tmp_path, tmir, e_depth=3)
+
+
+def _interior_starts(words, margin):
+    """Word indices at least `margin` words inside their class, on both sides."""
+    out, pos = [], 0
+    for clauses in split_stream(words):
+        n = sum(map(len, clauses))
+        out += range(pos + margin, pos + n - margin - 1)
+        pos += n
+    return out
+
+
+def test_adjacent_e_flips_change_nothing_at_depth_two(tmp_path):
+    """Two flipped E bits in ADJACENT words, well inside a class: depth 2
+    shrugs them off (the reason to choose it); depth 1 does not."""
+    tmir = _model(seed=6, n_samples=40)
+    cfg = _cfg(tmp_path / "base", tmir, 2, True)
+    words = RedressLookaheadBackend().encode_stream(tmir, cfg)
+    X = np.array([tv.input for tv in tmir.verification.test_vectors], dtype=np.uint8)
+    g = Geometry.from_config(cfg)
+    clean = predict_batches(words, 4, X, 32, g, **cfg.decoder_mode)
+    d1 = {"e_depth": 1, "cc_lookahead": True, "e_init": 1}
+
+    rng = np.random.default_rng(8)
+    depth1_broken = 0
+    for k, i in enumerate(rng.choice(_interior_starts(words, 3), size=6, replace=False)):
+        flipped = flip(flip(words, int(i), 13), int(i) + 1, 13)
+        assert (predict_batches(flipped, 4, X, 32, g, **cfg.decoder_mode) == clean).all()
+        depth1_broken += (predict_batches(flipped, 4, X, 32, g, **d1) != clean).any()
+        c = cfg.model_copy(update={"output_dir": tmp_path / f"a{k}"})
+        art = build_replay_bundle(tmir, flipped, c, mode=cfg.decoder_mode,
+                                  backend_cls=RedressLookaheadBackend)
+        ok, out = run_iverilog(art)  # RTL == faithful(flipped) == faithful(clean)
+        assert ok, out[-300:]
+    assert depth1_broken > 0

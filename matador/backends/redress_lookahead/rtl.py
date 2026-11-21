@@ -87,15 +87,19 @@ differs from the latched E, so the decoder starts a new class; the next
 (correct) word differs again, so it starts another. Every later class is then
 decoded two classes too high. CC flips do the same to clause boundaries.
 
-**The rule.** An E change is accepted only if the next word exists and carries
-the same new E. A rejected change leaves the E latch untouched. The E latch
-starts every batch at 1 (class 0's E) and counts as set, so word 0 is checked
-too. `cc_lookahead` applies the same rule to CC. The next word is read in
-Instruction Memory's idle slot (issued in S_INFER_DECODE, on `instr_rdata` in
-S_INFER_ACCUM), so inference takes exactly as many cycles as redress.
+**The rule.** An E change is accepted only if the next word (depth 1) or the
+next two words (depth 2) exist and carry the same new E. A rejected change
+leaves the E latch untouched. The E latch starts every batch at 1 (class 0's
+E) and counts as set, so word 0 is checked too. `cc_lookahead` applies the
+one-word rule to CC. The next word is read in Instruction Memory's idle slot
+(issued in S_INFER_DECODE, on `instr_rdata` in S_INFER_ACCUM); at depth 2 the
+word after it is read in the other idle slot (issued in S_INFER_INSTR,
+captured into `E_next2` in S_INFER_FEAT). Inference takes exactly as many
+cycles as redress.
 
 **The encoder** (`redress_lookahead.codec_la.encode`) pads every class to at
-least 4 words (the minimum for which no single E flip can cascade) and, with
+least 4 words at depth 1 (the minimum for which no single E flip can cascade)
+or 7 at depth 2 (the minimum for which no two adjacent E flips can), and, with
 `cc_lookahead`, stores every one-literal clause's literal twice (x AND x = x).
 The stored format is unchanged: a hardened stream also runs on plain redress.
 
