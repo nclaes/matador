@@ -49,6 +49,10 @@ _STATIC_SOURCES = ("redress_bram.v", "score_acc_rt.v", "argmax_rt.v")
 # Sourced from matador/backends/common/src/ (shared across backends) rather
 # than this backend's own src/ — see common/README.md.
 _COMMON_SOURCES = {"argmax_rt.v"}
+# The top-module name as it appears in the static Verilator files
+# (verilator/Makefile, verilator/tb_top.cpp). Subclasses with a different top
+# module get it substituted when those files are copied into a bundle.
+_VERILATOR_TOP_TOKEN = "redress_accel"
 
 
 def _clog2(n: int) -> int:
@@ -56,12 +60,12 @@ def _clog2(n: int) -> int:
     return max(1, (max(n, 1) - 1).bit_length())
 
 
-def _sub_param(text: str, name: str, value: int) -> str:
+def _sub_param(text: str, name: str, value: int, fname: str = "redress_accel.v") -> str:
     pattern = re.compile(rf"(parameter\s+{name}\s*=\s*)\d+")
     new_text, count = pattern.subn(rf"\g<1>{value}", text, count=1)
     if count != 1:
         raise RuntimeError(
-            f"expected exactly one 'parameter {name} = ...' in redress_accel.v, "
+            f"expected exactly one 'parameter {name} = ...' in {fname}, "
             f"found {count}"
         )
     return new_text
@@ -100,7 +104,22 @@ class RedressBackend(RTLBackend):
         — currently unused by redress_accel.v (no separate input FIFO —
           Instruction Memory / Feature FIFO ARE the buffering); kept on the
           config for symmetry with gp_tiled and forward compatibility.
+
+    Extension hooks (for subclasses such as a hardened-decoder variant):
+
+      _src_dir          where the top module (and any overridden submodule) lives
+      _verilator_dir    where the static Verilator Makefile/tb_top.cpp live
+      _top_module       top module name; its file is <_src_dir>/<_top_module>.v
+      _static_sources   submodules copied verbatim into every bundle
+      encode_stream()         TMIR -> instruction words (default: mustang_encode)
+      expected_predictions()  words + one packed batch -> expected classes
+      _extra_params()         extra `parameter NAME = value` substitutions
     """
+
+    _src_dir: Path = _SRC_DIR
+    _verilator_dir: Path = _VERILATOR_DIR
+    _top_module: str = "redress_accel"
+    _static_sources: tuple[str, ...] = _STATIC_SOURCES
 
     @property
     def name(self) -> str:
@@ -139,13 +158,12 @@ class RedressBackend(RTLBackend):
         # ── sources: static submodules verbatim, redress_accel.v capacity-
         #    parameterized ───────────────────────────────────────────────
         sources = []
-        for fname in _STATIC_SOURCES:
+        for fname in self._static_sources:
             dst = src_dir / fname
-            src = (_COMMON_DIR if fname in _COMMON_SOURCES else _SRC_DIR) / fname
-            dst.write_text(src.read_text())
+            dst.write_text(self._static_source_path(fname).read_text())
             sources.append(dst)
 
-        top_path = src_dir / "redress_accel.v"
+        top_path = src_dir / f"{self._top_module}.v"
         top_path.write_text(self._render_top(config))
         sources.append(top_path)
 
@@ -191,7 +209,7 @@ class RedressBackend(RTLBackend):
         verilator_dir.mkdir(exist_ok=True)
         for fname in ("Makefile", "tb_top.cpp"):
             dst = verilator_dir / fname
-            dst.write_text((_VERILATOR_DIR / fname).read_text())
+            dst.write_text(self._render_verilator_file(fname))
             sim_files.append(dst)
 
         readme_path = rtl_dir / "README.md"
@@ -390,14 +408,12 @@ class RedressBackend(RTLBackend):
         compile-time capacity AND the wire protocol's own field widths.
         Returns the encoded instruction stream (callers reuse it rather
         than re-encoding)."""
-        from matador.backends.redress import codec
-
         # MustangEmptyClassError is itself a ValueError (see codec.py) with
         # a clear, complete message -- let it propagate as-is rather than
         # wrapping it, so callers that want to distinguish "format can't
         # represent this model" from "model doesn't fit this config's
         # capacity" still can.
-        E_words = codec.mustang_encode(tmir)
+        E_words = self.encode_stream(tmir, config)
 
         arch = tmir.architecture
         if len(E_words) > config.max_includes:
@@ -456,10 +472,47 @@ class RedressBackend(RTLBackend):
     # ------------------------------------------------------------------
 
     def _render_top(self, config) -> str:
-        text = (_SRC_DIR / "redress_accel.v").read_text()
+        fname = f"{self._top_module}.v"
+        text = (self._src_dir / fname).read_text()
         for pname, value in self._capacity_params(config):
-            text = _sub_param(text, pname, value)
+            text = _sub_param(text, pname, value, fname)
         return text
+
+    def _static_source_path(self, fname: str) -> Path:
+        """Where a static submodule is copied from: common/src for shared
+        modules, else this backend's _src_dir if it has its own copy, else
+        redress's src/ (so a subclass only ships the files it changes)."""
+        if fname in _COMMON_SOURCES:
+            return _COMMON_DIR / fname
+        own = self._src_dir / fname
+        return own if own.exists() else _SRC_DIR / fname
+
+    def _render_verilator_file(self, fname: str) -> str:
+        """A static Verilator file with the top-module name substituted.
+        For redress itself this is an identity copy."""
+        text = (self._verilator_dir / fname).read_text()
+        return text.replace(_VERILATOR_TOP_TOKEN, self._top_module)
+
+    # ------------------------------------------------------------------
+    # Extension hooks (see the class docstring)
+    # ------------------------------------------------------------------
+
+    def encode_stream(self, tmir, config) -> list[int]:
+        """TMIR -> the instruction words loaded into Instruction Memory."""
+        from matador.backends.redress import codec
+        return codec.mustang_encode(tmir)
+
+    def expected_predictions(self, words, n_classes: int, X_pack, config) -> list[int]:
+        """Expected predicted class for every one of the batch_width lanes of
+        one packed Feature batch -- what the testbench checks the RTL against."""
+        from matador.backends.redress import codec
+        best_class, _ = codec.mustang_decode_and_infer(words, n_classes, X_pack, config.batch_width)
+        return best_class
+
+    def _extra_params(self, config) -> list[tuple[str, int]]:
+        """Additional `parameter NAME = value` substitutions for the top
+        module, applied after the capacity parameters. redress has none."""
+        return []
 
     def _capacity_params(self, config) -> list[tuple[str, int]]:
         """Every `parameter NAME = ...` in redress_accel.v that must be
@@ -485,7 +538,7 @@ class RedressBackend(RTLBackend):
             ("BATCH_WIDTH", config.batch_width),
             ("OUT_IDX_W", _clog2(config.batch_width)),
             ("SCORE_WIDTH", score_width),
-        ]
+        ] + self._extra_params(config)
 
     def _build_stimulus(self, tmir, config, E_words: list[int], X: "np.ndarray | None" = None):
         """One Instruction-stream packet (this model's MUSTANG encoding),
@@ -539,7 +592,7 @@ class RedressBackend(RTLBackend):
                 stim_words.append(w)
                 stim_lasts.append(1 if i == n_features - 1 else 0)
 
-            best_class, _ = codec.mustang_decode_and_infer(E_words, n_classes, X_pack, W)
+            best_class = self.expected_predictions(E_words, n_classes, X_pack, config)
             for j in range(W):
                 exp_words.append(best_class[j])
                 exp_lasts.append(1 if j == W - 1 else 0)
@@ -574,7 +627,7 @@ class RedressBackend(RTLBackend):
 
         return textwrap.dedent(f"""\
             `timescale 1ns/1ps
-            // Auto-generated by matador generate (redress backend).
+            // Auto-generated by matador generate ({self.name} backend).
             {header_comment}
             module {tb_name};
 
@@ -594,7 +647,7 @@ class RedressBackend(RTLBackend):
                 wire                       m_tlast;
                 wire                       busy;
 
-                redress_accel #(
+                {self._top_module} #(
                     {dut_params}
                 ) dut (
                     .clk(clk), .rst_n(rst_n),
@@ -821,7 +874,7 @@ class RedressBackend(RTLBackend):
         return json.dumps(payload, indent=2) + "\n"
 
     def _gen_sim_scripts(self) -> dict[str, str]:
-        srcs = " ".join(f"$SRC_DIR/{f}" for f in (*_STATIC_SOURCES, "redress_accel.v"))
+        srcs = " ".join(f"$SRC_DIR/{f}" for f in (*self._static_sources, f"{self._top_module}.v"))
         return {
             "run_iverilog.sh": textwrap.dedent(f"""\
                 #!/usr/bin/env bash
@@ -895,7 +948,7 @@ class RedressBackend(RTLBackend):
             vanilla_hardwired, this core is **not** regenerated per model: it is
             synthesized once at the capacity in the reference table below, then
             reprogrammed at runtime over `s_axis` with an Instruction-stream packet
-            (see `src/redress_accel.v`'s header comment for the full AXI-Stream
+            (see `src/{self._top_module}.v`'s header comment for the full AXI-Stream
             protocol). Unlike vanilla_gp_tiled's dense tile memory, the loaded
             representation is SPARSE: one 16-bit word per included literal, nothing
             for excludes or empty clauses -- see `matador.backends.redress.codec`'s
@@ -903,7 +956,7 @@ class RedressBackend(RTLBackend):
 
             ## 0. Orientation
 
-              src/redress_accel.v          Top module -- read its header comment
+              src/{self._top_module}.v          Top module -- read its header comment
                                           for the full AXI-Stream protocol and
                                           instruction word layout.
               src/redress_bram.v           Generic BRAM (Instruction Memory, Feature FIFO).
@@ -943,10 +996,10 @@ class RedressBackend(RTLBackend):
             run (§ 3) -- no rebuild needed, only a re-run:
 
             ```
-            sim/verilator/obj_dir/Vredress_accel --stim my_stim.memh --exp my_expected.memh
+            sim/verilator/obj_dir/V{self._top_module} --stim my_stim.memh --exp my_expected.memh
             ```
 
-            `matador simulate --backend redress --config ...` runs both paths
+            `matador simulate --backend {self.name} --config ...` runs both paths
             automatically and reports PASS/FAIL per testbench.
 
             ## 2. View waveforms
@@ -965,7 +1018,7 @@ class RedressBackend(RTLBackend):
             ## 3. Prove reprogrammability with your own models
 
             ```
-            matador reprogram-suite --backend redress \\
+            matador reprogram-suite --backend {self.name} \\
                 --config redress.yaml \\
                 --reprogram-config reprogram_config.yaml
             ```

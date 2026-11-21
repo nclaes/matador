@@ -364,6 +364,103 @@ def test_rtl_simulation_handles_no_embedded_vectors(tmp_path):
     assert "FAIL" not in output
 
 
+# ---------------------------------------------------------------------------
+# Extension hooks: a subclass can swap the top module, encoder, expected-output
+# model and extra parameters without copying RedressBackend.
+# ---------------------------------------------------------------------------
+
+def _alt_backend(tmp_path):
+    """RedressBackend subclass whose top module is a renamed copy of
+    redress_accel.v with one extra parameter. Every hook is overridden, and the
+    encoder/expected-output hooks count their calls."""
+    from matador.backends.redress import rtl as redress_rtl
+
+    src_dir = tmp_path / "alt_src"
+    src_dir.mkdir()
+    text = (redress_rtl._SRC_DIR / "redress_accel.v").read_text()
+    text = text.replace("module redress_accel #(", "module alt_accel #(", 1)
+    text = text.replace(
+        "    parameter SCORE_WIDTH     = 14\n",
+        "    parameter SCORE_WIDTH     = 14,\n    parameter EXTRA_KNOB      = 0\n",
+        1,
+    )
+    (src_dir / "alt_accel.v").write_text(text)
+    calls = {"encode": 0, "expected": 0}
+
+    class AltBackend(RedressBackend):
+        _src_dir = src_dir
+        _top_module = "alt_accel"
+
+        def encode_stream(self, tmir, config):
+            calls["encode"] += 1
+            return super().encode_stream(tmir, config)
+
+        def expected_predictions(self, words, n_classes, X_pack, config):
+            calls["expected"] += 1
+            return super().expected_predictions(words, n_classes, X_pack, config)
+
+        def _extra_params(self, config):
+            return [("EXTRA_KNOB", 7)]
+
+    return AltBackend(), calls
+
+
+def test_subclass_hooks_reach_every_generated_file(tmp_path):
+    tmir = _make_tmir(n_samples=40)
+    cfg = _make_cfg(tmp_path, tmir=tmir)
+    backend, calls = _alt_backend(tmp_path)
+    artifacts = backend.generate(tmir, cfg)
+    rtl = artifacts.rtl_dir
+
+    src_names = {p.name for p in artifacts.sources}
+    assert src_names == {"redress_bram.v", "score_acc_rt.v", "argmax_rt.v", "alt_accel.v"}
+    top = (rtl / "src" / "alt_accel.v").read_text()
+    assert "module alt_accel #(" in top
+    assert "parameter EXTRA_KNOB      = 7" in top
+    assert "parameter MAX_CLASSES     = 16" in top  # capacity params still applied
+
+    tb = (rtl / "tb" / "tb_redress_model.v").read_text()
+    assert "alt_accel #(" in tb and ".EXTRA_KNOB(7)" in tb
+    assert "$SRC_DIR/alt_accel.v" in (rtl / "sim" / "run_iverilog.sh").read_text()
+    assert "--top-module alt_accel" in (rtl / "sim" / "verilator" / "Makefile").read_text()
+    assert '#include "Valt_accel.h"' in (rtl / "sim" / "verilator" / "tb_top.cpp").read_text()
+    assert "src/alt_accel.v" in (rtl / "README.md").read_text()
+
+    # The old name must not survive in anything the generator writes. src/ is
+    # skipped: those are verbatim RTL copies whose comments mention redress_accel.
+    for path in rtl.rglob("*"):
+        if path.is_file() and "src" not in path.relative_to(rtl).parts:
+            assert "redress_accel" not in path.read_text(), path
+
+    # One encode for the model; one expected-output call per batch.
+    assert calls["encode"] == 1
+    assert calls["expected"] == -(-40 // cfg.batch_width)
+
+
+@pytest.mark.skipif(not _HAVE_IVERILOG, reason="iverilog not installed")
+def test_subclass_bundle_and_reprogram_suite_simulate(tmp_path):
+    tmir_a = _make_tmir(n_features=15, n_classes=2, cpc=8, density=0.3, n_samples=40, seed=10)
+    tmir_b = _make_tmir(n_features=15, n_classes=2, cpc=8, density=0.25, n_samples=50, seed=11)
+    path_b = tmp_path / "b.yaml"
+    tmir_b.to_yaml(path_b)
+    cfg = _make_cfg(tmp_path, tmir=tmir_a)
+    backend, _ = _alt_backend(tmp_path)
+
+    artifacts = backend.generate(tmir_a, cfg)
+    sim_dir = artifacts.rtl_dir / "sim"
+    tb_path = artifacts.rtl_dir / "tb" / "tb_redress_model.v"
+    output = _run_iverilog(artifacts.sources, tb_path, sim_dir)
+    assert "TESTS PASSED" in output and "FAIL" not in output, output
+
+    steps = [ReprogramStep(tmir_path=cfg.model_path, name="a"),
+             ReprogramStep(tmir_path=path_b, name="b")]
+    suite = backend.build_reprogram_suite(artifacts.rtl_dir, steps, cfg)
+    suite_tb = suite.testbenches[0]
+    assert "alt_accel #(" in suite_tb.read_text()
+    output = _run_iverilog(artifacts.sources, suite_tb, sim_dir)
+    assert "TESTS PASSED" in output and "FAIL" not in output, output
+
+
 def test_generate_exports_verilator_harness(tmp_path):
     tmir = _make_tmir()
     cfg = _make_cfg(tmp_path, tmir=tmir)
