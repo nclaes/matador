@@ -132,7 +132,10 @@ def validate_rtl(config) -> RTLValidationReport:
     import shutil
     import subprocess
 
-    rtl_dir      = config.output_dir / "RTL"
+    # Absolute: vvp and the Verilator binary run with cwd=sim_dir/verilator_dir,
+    # where a path relative to the caller's cwd (a relative output_dir) would
+    # not resolve.
+    rtl_dir      = (config.output_dir / "RTL").resolve()
     src_dir      = rtl_dir / "src"
     tb_dir       = rtl_dir / "tb"
     sim_dir      = rtl_dir / "sim"

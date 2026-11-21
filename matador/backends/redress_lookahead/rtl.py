@@ -35,6 +35,11 @@ class RedressLookaheadBackend(RedressBackend):
         from matador.backends.redress_lookahead.config import RedressLookaheadConfig
         return RedressLookaheadConfig
 
+    @property
+    def emulator_class(self):
+        from matador.backends.redress_lookahead.emulator import RedressLookaheadEmulator
+        return RedressLookaheadEmulator
+
     # ── Stage 1 hooks ─────────────────────────────────────────────────────
 
     def encode_stream(self, tmir, config) -> list[int]:
@@ -54,6 +59,62 @@ class RedressLookaheadBackend(RedressBackend):
 
     def _extra_params(self, config) -> list[tuple[str, int]]:
         return [("E_LA_DEPTH", config.e_lookahead_depth), ("CC_LA", int(config.cc_lookahead))]
+
+    # ── generated RTL/README.md ──────────────────────────────────────────
+
+    def _gen_readme(self, config, tmir, E_words: list[int]) -> str:
+        from matador.backends.redress.codec import mustang_encode
+
+        text = super()._gen_readme(config, tmir, E_words)
+        text = text.replace(
+            "# redress — MUSTANG Single-Core accelerator",
+            "# redress_lookahead — MUSTANG Single-Core accelerator with E/CC look-ahead", 1)
+        text = text.replace(
+            "against `codec.mustang_decode_and_infer()`",
+            "against `redress_lookahead.faithful.decode_faithful()` (the RTL-exact model)", 1)
+        plain = len(mustang_encode(tmir))
+        extra = 100.0 * (len(E_words) - plain) / plain if plain else 0.0
+        d, cc = config.e_lookahead_depth, config.cc_lookahead
+        return text + f"""
+## Look-ahead (what this backend adds to redress)
+
+  e_lookahead_depth = {d}   (E_LA_DEPTH)
+  cc_lookahead      = {cc}   (CC_LA = {int(cc)})
+  stored words      = {len(E_words):,}  (plain MUSTANG: {plain:,}; +{extra:.1f}% from hardening)
+
+**The failure it fixes.** As built, a flipped E bit on a word inside a class
+differs from the latched E, so the decoder starts a new class; the next
+(correct) word differs again, so it starts another. Every later class is then
+decoded two classes too high. CC flips do the same to clause boundaries.
+
+**The rule.** An E change is accepted only if the next word exists and carries
+the same new E. A rejected change leaves the E latch untouched. The E latch
+starts every batch at 1 (class 0's E) and counts as set, so word 0 is checked
+too. `cc_lookahead` applies the same rule to CC. The next word is read in
+Instruction Memory's idle slot (issued in S_INFER_DECODE, on `instr_rdata` in
+S_INFER_ACCUM), so inference takes exactly as many cycles as redress.
+
+**The encoder** (`redress_lookahead.codec_la.encode`) pads every class to at
+least 4 words (the minimum for which no single E flip can cascade) and, with
+`cc_lookahead`, stores every one-literal clause's literal twice (x AND x = x).
+The stored format is unchanged: a hardened stream also runs on plain redress.
+
+**In the waves**, open the "Look-ahead decision" group. Read `class_boundary` /
+`clause_boundary` only where `state = 6` (S_INFER_ACCUM); in other states
+`instr_rdata` is not yet the next word.
+
+**Fault-injection checks** (from the matador repo):
+
+```
+# exhaustive single-bit Instruction Memory campaign, N x P per field
+python -m matador.backends.redress_lookahead.campaign --model <this TMIR> --variant v0 v3 v4
+
+# corrupted-model replay: load a flipped stream into this RTL and check it
+# against decode_faithful -- redress_lookahead/replay.py:
+#   build_replay_bundle(tmir, flip(words, i, bit), config, mode=config.decoder_mode,
+#                       backend_cls=RedressLookaheadBackend), then run_iverilog(...)
+```
+"""
 
     # ── waveform layout: add the look-ahead decision signals ─────────────
 

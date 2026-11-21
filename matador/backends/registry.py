@@ -22,6 +22,7 @@ _BACKENDS: dict[str, tuple[str, str]] = {
     "vanilla_hardwired": ("matador.backends.hardwired.rtl", "HardwiredBackend"),
     "vanilla_gp_tiled":  ("matador.backends.gp_tiled.rtl",  "GPTiledBackend"),
     "redress":           ("matador.backends.redress.rtl",  "RedressBackend"),
+    "redress_lookahead": ("matador.backends.redress_lookahead.rtl", "RedressLookaheadBackend"),
 }
 
 # Short one-line descriptions shown in list-backends and the splash screen
@@ -35,6 +36,9 @@ _DESCRIPTIONS: dict[str, str] = {
                          "(sparse 16-bit Include-Encoded instruction stream, REDRESS thesis "
                          "Ch. 4.3/5.3). Knobs: target_fpga, max_includes, max_features, "
                          "max_classes, batch_width.",
+    "redress_lookahead": "redress with E/CC look-ahead decoding: a single flipped E/CC bit in "
+                         "Instruction Memory no longer shifts every later class/clause. No extra "
+                         "cycles. Knobs: redress's, plus e_lookahead_depth (0/1), cc_lookahead.",
 }
 
 

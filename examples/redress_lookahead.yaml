@@ -1,0 +1,54 @@
+# redress_lookahead.yaml — redress with E/CC look-ahead decoding
+#
+# Usage:
+#   matador generate --backend redress_lookahead --config examples/redress_lookahead.yaml
+#   matador simulate --backend redress_lookahead --config examples/redress_lookahead.yaml
+#
+# Architecture
+# ------------
+# The redress (MUSTANG Single-Core) accelerator with a hardened decoder. As
+# built, one flipped E bit in Instruction Memory makes the decoder insert two
+# spurious class boundaries, so every later class is decoded two classes too
+# high. With look-ahead, an E (or CC) change is accepted only if the NEXT word
+# carries the same new value; otherwise it is treated as a flip and ignored.
+# The next word is read in Instruction Memory's idle slot: no extra cycles.
+#
+# The stored format is unchanged. The encoder only adds words: classes are
+# padded to at least 4 words (e_lookahead_depth 1), and every one-literal
+# clause's literal is stored twice (cc_lookahead). A hardened stream still
+# decodes correctly on the plain redress backend.
+#
+# Measure the effect yourself:
+#   python -m matador.backends.redress_lookahead.campaign --model <your TMIR> --variant v0 v3 v4
+#
+# Every field of examples/redress.yaml applies here too; see that file for the
+# capacity notes. Only the two look-ahead knobs at the bottom are new.
+
+model_path: /work/TMIR/<model_name>/TM_TMIR_Clauses_50_s_value_5_T_value_200_epochs_50_max_literals_32.yaml
+output_dir: /work
+
+axis_data_width: 32
+fifo_depth: 16
+batch_width: 32
+
+target_fpga: xc7z020
+# bram_bits_budget: 100000000
+
+# Hardened streams are slightly longer than plain MUSTANG ones (a few percent
+# on real models; up to ~10% on models with many one-literal clauses). If
+# generate reports the model doesn't fit, raise this.
+max_includes: 4096
+max_features: 256
+max_classes: 16
+
+# ── look-ahead ──────────────────────────────────────────────────────────
+# 0 = as built (identical to the redress backend, including under faults)
+# 1 = accept an E change only if the next word carries it (v3 in the strawman)
+# 2 is not implemented in RTL (it needs a prefetch window); the campaign can
+#     evaluate it in software: --variant v3d2 v4d2
+e_lookahead_depth: 1
+
+# Apply the same one-word rule to CC (v4 = depth 1 + this). Costs the
+# duplicated one-literal clauses; protects clause boundaries from CC flips on
+# a clause's 3rd..second-to-last words.
+cc_lookahead: true

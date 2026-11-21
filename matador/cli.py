@@ -832,7 +832,8 @@ def simulate(backend_name: str, config_path: Path, sim: str, tb: str, open_waves
     "--backend", "backend_name",
     required=True,
     type=click.Choice(list_backends()),
-    help="Backend to target — must support runtime reprogramming (currently: vanilla_gp_tiled, redress).",
+    help="Backend to target — must support runtime reprogramming (currently: vanilla_gp_tiled, "
+         "redress, redress_lookahead).",
 )
 @click.option(
     "--config",
@@ -950,7 +951,8 @@ def reprogram_suite(backend_name: str, config_path: "Path | None", reprogram_con
     required=True,
     type=click.Choice(list_backends()),
     help="Backend to export the model.json schema for — vanilla_gp_tiled "
-         "(has a standalone sim/gen_vectors.py reader) or redress (same schema).",
+         "(has a standalone sim/gen_vectors.py reader), redress or redress_lookahead "
+         "(same schema: hardening happens at encode time, not in the model).",
 )
 @click.option(
     "--model", "model_path",
@@ -982,7 +984,7 @@ def export_model_json(backend_name: str, model_path: Path, output_path: "Path | 
     doesn't know matador's TMIR format and isn't meant to).
 
     \b
-    Supports --backend vanilla_gp_tiled and --backend redress. Both produce
+    Supports --backend vanilla_gp_tiled, redress and redress_lookahead. All produce
     the SAME JSON schema (name, n_features, n_classes, clauses_per_class,
     include — TMIR's own Include bits reshaped, nothing backend-specific
     about the shape itself); only vanilla_gp_tiled ships a standalone
@@ -1001,9 +1003,10 @@ def export_model_json(backend_name: str, model_path: Path, output_path: "Path | 
     import json
     from matador.ir.tm_ir import TMIR
 
-    if backend_name not in ("vanilla_gp_tiled", "redress"):
+    if backend_name not in ("vanilla_gp_tiled", "redress", "redress_lookahead"):
         raise click.ClickException(
-            f"export-model-json only supports vanilla_gp_tiled and redress currently, got {backend_name!r}."
+            "export-model-json only supports vanilla_gp_tiled, redress and redress_lookahead "
+            f"currently, got {backend_name!r}."
         )
 
     from matador.backends.gp_tiled.tmir_bridge import tmir_to_tmmodel
