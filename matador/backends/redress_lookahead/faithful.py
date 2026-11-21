@@ -1,8 +1,8 @@
 """A software model of redress_accel.v that stays bit-exact under faults.
 
 codec.mustang_decode_and_infer() is the *specification*: it is correct on clean
-streams, but it is not the RTL. Once bits are flipped the two diverge (see
-docs/lookahead_exercise/STAGE_2_faithful.md). decode_faithful() instead copies
+streams, but it is not the RTL. Once bits are flipped the two diverge (counter wrap,
+per-index accumulation, argmax limits). decode_faithful() instead copies
 the RTL's own datapath, register by register, so it predicts what the hardware
 does with a corrupted Instruction Memory, not what the format intends.
 

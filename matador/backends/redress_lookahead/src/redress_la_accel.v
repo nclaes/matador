@@ -2,8 +2,7 @@
 // =============================================================================
 // redress_la_accel — redress_accel with E/CC look-ahead decoding
 // =============================================================================
-// LOOK-AHEAD (the only functional change from redress_accel.v; see
-// docs/lookahead_exercise/STAGE_4_lookahead_rtl.md)
+// LOOK-AHEAD (the only functional change from redress_accel.v)
 //   E_LA_DEPTH = 1: accept an E change only if the NEXT word exists and
 //     carries the same new E. A rejected change leaves E_prev untouched, so a
 //     single flipped E bit no longer shifts every later class. E_prev starts

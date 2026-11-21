@@ -141,13 +141,16 @@ negligible word cost.** The size of v3's share is model-dependent.
 
 ## Step 4 — Corrupted-model replay through both RTLs
 
+> `replay_sample.py` is a local helper script, not part of the repo. It wraps
+> `matador.backends.redress_lookahead.replay` (`build_replay_bundle`, `flip`, `run_iverilog`) in a loop.
+
 A random sample of single-bit-corrupted Instruction Memories, each loaded into the real RTL (iverilog)
 and checked against `decode_faithful` in the matching mode. There are 64 held-out vectors per replay
 (2 batches).
 
 Uniform over all 16 bits:
 ```
-$ python docs/lookahead_exercise/scripts/replay_sample.py --model <model>.yaml \
+$ python replay_sample.py --model <model>.yaml \
     --test-data build/la_stage6/booleanised/mammographic_test.txt --n 50 --vectors 64 --out build/la_stage6/replays
 64 vectors per replay, 50 random replay-safe single-bit flips per RTL (fields: P CC E offset L)
 design                   replays  RTL==model  visible   visible flips by field
@@ -157,7 +160,7 @@ redress_lookahead (v4)        50      50/50         0   -
 
 Targeted at E and CC, where faults are visible:
 ```
-$ python docs/lookahead_exercise/scripts/replay_sample.py ... --fields E CC --seed 2
+$ python replay_sample.py ... --fields E CC --seed 2
 64 vectors per replay, 50 random replay-safe single-bit flips per RTL (fields: E CC)
 design                   replays  RTL==model  visible   visible flips by field
 redress (as built)            50      50/50        37   CC 23, E 14
@@ -179,4 +182,4 @@ redress_lookahead (v4)        50      50/50         1   E 1
 | Train | `matador train` (vendored `tmu`) | 80.31%, 1,094 words, 1 one-literal clause |
 | Generate / simulate / emulate | `matador … --backend redress_lookahead` | iverilog + Verilator PASS; emulator == reference; +5 cycles total (1 word) |
 | Campaign | `python -m matador.backends.redress_lookahead.campaign` | N × P 288 → 3.37 (85×) with v4, for +0.1% words |
-| Replay | `docs/lookahead_exercise/scripts/replay_sample.py` | 200 / 200 RTL == `decode_faithful` |
+| Replay | `redress_lookahead.replay` (via a local `replay_sample.py`) | 200 / 200 RTL == `decode_faithful` |

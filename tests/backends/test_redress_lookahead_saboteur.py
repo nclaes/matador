@@ -1,5 +1,6 @@
-"""Stage 7: the mini saboteur (docs/lookahead_exercise/scripts/saboteur.py),
-made deterministic. Flip a named register at a chosen inference cycle and
+"""The mini saboteur, made deterministic. saboteur.py is a local exercise
+script (docs/lookahead_exercise/ is gitignored), so these tests skip when it
+is absent. Flip a named register at a chosen inference cycle and
 check which design notices.
 
 Inference cycle 4*j + k is word j's INSTR (k=0), DECODE (1), FEAT (2) or
@@ -25,6 +26,8 @@ from matador.backends.redress_lookahead.rtl import RedressLookaheadBackend
 pytestmark = pytest.mark.skipif(shutil.which("iverilog") is None, reason="iverilog not installed")
 
 _SCRIPT = Path(__file__).parents[2] / "docs" / "lookahead_exercise" / "scripts" / "saboteur.py"
+if not _SCRIPT.exists():
+    pytest.skip("local saboteur.py script not present", allow_module_level=True)
 _spec = importlib.util.spec_from_file_location("saboteur", _SCRIPT)
 saboteur = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(saboteur)

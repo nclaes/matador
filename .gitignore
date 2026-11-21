@@ -97,3 +97,6 @@ data.zip
 
 # Local reference copy, not part of the repo
 Thesis.pdf
+
+# Local learning exercise (brief, stage notes, helper scripts) -- not part of the repo
+docs/lookahead_exercise/
