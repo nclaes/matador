@@ -142,6 +142,19 @@ def load_model_and_vectors(path, n_vectors=None, seed=0):
     return tmir, X
 
 
+def load_test_data(path, n_features, n_vectors=None, seed=0) -> np.ndarray:
+    """A `matador booleanize` *_test.txt: one sample per line, space-separated
+    bits, label in the last column (dropped: P compares against the model's
+    own fault-free prediction, never the label)."""
+    raw = np.loadtxt(path, dtype=np.uint8, ndmin=2)
+    X = raw[:, :-1]
+    if X.shape[1] != n_features:
+        raise SystemExit(f"{path}: {X.shape[1]} feature columns, model expects {n_features}")
+    if n_vectors is not None and n_vectors < len(X):
+        X = X[np.sort(np.random.default_rng(seed).choice(len(X), n_vectors, replace=False))]
+    return X
+
+
 def format_table(results: list[CampaignResult]) -> str:
     base = results[0]
     head = f"{'variant':<8}{'words':>7}{'extra':>8}{'N x P':>10}{'gain':>8}  " + "".join(
@@ -163,6 +176,8 @@ def main(argv=None) -> int:
     src.add_argument("--synthetic", action="store_true", help="use the built-in synthetic model")
     src.add_argument("--model", help="TMIR .yaml/.npz with embedded test vectors")
     ap.add_argument("--variant", nargs="+", default=["v0"], choices=sorted(VARIANTS))
+    ap.add_argument("--test-data", help="booleanised *_test.txt (last column = label, dropped); "
+                    "default: the model's embedded verification vectors")
     ap.add_argument("--vectors", type=int, default=None, help="subsample this many test vectors")
     ap.add_argument("--batch-width", type=int, default=32)
     ap.add_argument("--max-classes", type=int, default=16)
@@ -173,6 +188,9 @@ def main(argv=None) -> int:
     if args.synthetic:
         tmir = make_synthetic_tmir(seed=args.seed)
         X = np.array([tv.input for tv in tmir.verification.test_vectors], dtype=np.uint8)
+    elif args.test_data:
+        tmir, _ = load_model_and_vectors(args.model)
+        X = load_test_data(args.test_data, tmir.architecture.n_features, args.vectors, args.seed)
     else:
         tmir, X = load_model_and_vectors(args.model, args.vectors, args.seed)
 
